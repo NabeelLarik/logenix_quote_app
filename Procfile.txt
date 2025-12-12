@@ -1,0 +1,1 @@
+web: gunicorn logenix_qoute_generator:app

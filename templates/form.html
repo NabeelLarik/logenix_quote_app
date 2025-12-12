@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Logenix Quote Generator</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <style>
+        body {
+            background: #f5f6fa;
+        }
+        .form-card {
+            max-width: 900px;
+            margin: auto;
+            border-radius: 12px;
+        }
+        .card {
+            border: none;
+            border-radius: 12px;
+        }
+        .form-label {
+            font-weight: 600;
+        }
+        .rate-card {
+            border-radius: 10px;
+            border: 1px solid #dee2e6;
+            background: #f8f9fa;
+        }
+        .rate-card-header {
+            font-weight: 600;
+            color: #0d6efd;
+        }
+    </style>
+</head>
+
+<body class="p-4">
+
+<div class="container">
+    <div class="card shadow p-4 form-card">
+
+        <h3 class="mb-3 fw-bold text-primary">Logenix — Quote Input</h3>
+
+        <form method="post" action="/submit">
+
+            <!-- Shared datalist for all locations (shipping from / destination) -->
+            <datalist id="locations">
+                {% for c in countries %}
+                <option value="{{ c }}">
+                {% endfor %}
+            </datalist>
+
+            <!-- Datalist for container types -->
+            <datalist id="container_types">
+                <option value="Dry">
+                <option value="Break Bulk">
+                <option value="Reefer">
+                <option value="Flat Rack">
+                <option value="Open Top">
+                <option value="20ft">
+                <option value="40ft">
+                <option value="20ft Dry">
+                <option value="40ft Dry">
+                <option value="20ft Reefer">
+                <option value="40ft Reefer">
+            </datalist>
+
+            <!-- Datalist for commodities (dynamic: base list + Excel) -->
+            <datalist id="commodities">
+                {% for m in commodities %}
+                <option value="{{ m }}">
+                {% endfor %}
+            </datalist>
+
+            <div class="row g-3">
+
+                <div class="col-md-6">
+                    <label class="form-label">Company Name / Your Name</label>
+                    <input name="company_name" required class="form-control">
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label">Shipping From (Country / Port)</label>
+                    <input
+                        name="shipping_from"
+                        class="form-control"
+                        list="locations"
+                        required
+                        placeholder="Start typing a location..."
+                    >
+                    <small class="text-muted">
+                        Begin typing and choose from the suggestions.
+                    </small>
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label">Destination (Country / Port)</label>
+                    <input
+                        name="destination"
+                        class="form-control"
+                        list="locations"
+                        required
+                        placeholder="Start typing a location..."
+                    >
+                    <small class="text-muted">
+                        Begin typing and choose from the suggestions.
+                    </small>
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label">Commodity</label>
+                    <input
+                        name="commodity"
+                        class="form-control"
+                        list="commodities"
+                        required
+                        placeholder="Select or type commodity"
+                    >
+                    <small class="text-muted">
+                        Choose an existing commodity or type a new one.
+                    </small>
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label">Cargo Type</label>
+                    <input name="cargo_type" required class="form-control">
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label">Weight (tons)</label>
+                    <input type="number" step="0.01" name="weight_tons" required class="form-control">
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label">Type of Container</label>
+                    <input
+                        name="container_type"
+                        list="container_types"
+                        required
+                        class="form-control"
+                        placeholder="Select or type"
+                    >
+                    <small class="text-muted">
+                        Choose from the list or type your own container type.
+                    </small>
+                </div>
+
+            </div>
+
+            <div class="text-end mt-4">
+                <button class="btn btn-primary btn-lg px-4">Generate</button>
+            </div>
+        </form>
+
+        {% if submitted and data %}
+        <hr class="my-4">
+
+        <h5 class="fw-bold text-success">Quote Details Submitted</h5>
+        <ul class="mt-3">
+            <li><strong>Quote ID:</strong> {{ data.quote_id }}</li>
+            <li><strong>Company:</strong> {{ data.company_name }}</li>
+            <li><strong>From:</strong> {{ data.shipping_from }}</li>
+            <li><strong>To:</strong> {{ data.destination }}</li>
+            <li><strong>Commodity:</strong> {{ data.commodity }}</li>
+            <li><strong>Cargo Type:</strong> {{ data.cargo_type }}</li>
+            <li><strong>Weight:</strong> {{ data.weight_tons }}</li>
+            <li><strong>Container Type:</strong> {{ data.container_type }}</li>
+            <li><strong>Timestamp:</strong> {{ data.timestamp }}</li>
+        </ul>
+
+        <p class="text-muted"><em>Saved to queries.xlsx</em></p>
+        {% endif %}
+
+        {% if submitted %}
+            <hr class="my-4">
+            <h5 class="fw-bold text-primary">Matching Rates (Based on Origin / POL)</h5>
+
+            {% if rates and rates|length > 0 %}
+                <div class="row row-cols-1 row-cols-md-2 g-3 mt-2">
+                    {% for r in rates %}
+                    <div class="col">
+                        <div class="p-3 rate-card h-100">
+                            <div class="rate-card-header mb-2">
+                                {{ r["POL"] }} ➜ {{ r["POD"] }}
+                            </div>
+                            <p class="mb-1"><strong>Date:</strong> {{ r["Date"] }}</p>
+                            <p class="mb-1"><strong>POL:</strong> {{ r["POL"] }}</p>
+                            <p class="mb-1"><strong>POD:</strong> {{ r["POD"] }}</p>
+                            <p class="mb-1"><strong>Ocean Freight/40ft:</strong> {{ r["Ocean Freight/40ft"] }}</p>
+                            <p class="mb-1"><strong>Type of Container:</strong> {{ r["Type of Container"] }}</p>
+                            <p class="mb-1"><strong>Free days:</strong> {{ r["Free days"] }}</p>
+                            <p class="mb-1"><strong>Rates Validity:</strong> {{ r["Rates Validity"] }}</p>
+                            <p class="mb-0"><strong>Commodity:</strong> {{ r["Commodity"] }}</p>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p class="text-muted mt-2">
+                    No matching rates found for this origin in <code>prices_updated.xlsx</code>.
+                </p>
+            {% endif %}
+        {% endif %}
+
+    </div>
+</div>
+
+</body>
+</html>
