@@ -5,8 +5,9 @@ from datetime import datetime
 
 app = Flask(__name__)
 
-EXCEL_FILE = "queries.xlsx"
-PRICES_FILE = "prices_updated.xlsx"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+EXCEL_FILE = os.path.join(BASE_DIR, "queries.xlsx")
+PRICES_FILE = os.path.join(BASE_DIR, "prices_updated.xlsx")
 
 # Locations / countries list for dropdown + autocomplete
 COUNTRIES = [
@@ -273,4 +274,5 @@ def submit():
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+   # app.run(debug=True)
