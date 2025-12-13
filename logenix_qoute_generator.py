@@ -1,13 +1,15 @@
 from flask import Flask, request, render_template
 import pandas as pd
 import os
-from datetime import datetime
+from datetime import datetime, date, timedelta
 
 app = Flask(__name__)
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-EXCEL_FILE = os.path.join(BASE_DIR, "queries.xlsx")
-PRICES_FILE = os.path.join(BASE_DIR, "prices_updated.xlsx")
+EXCEL_FILE = "queries.xlsx"
+PRICES_FILE = "prices_updated.xlsx"
+
+# Recently expired window (days). Change if you want (e.g., 14).
+RECENTLY_EXPIRED_DAYS = 7
 
 # Locations / countries list for dropdown + autocomplete
 COUNTRIES = [
@@ -23,9 +25,11 @@ COUNTRIES = [
     "Ladkrabang, Bangkok.",
     "Aqaba Port",
     "Shanghai/Taicang/Ningbo Port",
+    "Malaysia",
     "Mersin Port",
     "Abu-Dhabi",
     "Jabel Ali Port",
+    "India",
     "Bandar Abbas Port",
     "Nava Sheva Port",
     "Jizzakh",
@@ -44,6 +48,8 @@ COUNTRIES = [
     "Abu Dhabi",
     "Conrad, USA",
     "Dubai",
+    "Germany",
+    "Bandar Abbas",
     "Klang port",
     "Jebel Ali",
     "UAE",
@@ -54,7 +60,9 @@ COUNTRIES = [
     "Ningbo",
     "Yiwu",
     "Czech Republic",
+    "Karachi Port ",
     "Fujairah",
+    "Dubai ",
     "Vizag (Visakhapatnam) Port",
     "Yiwu City",
     "Yiwu City/Ningbo",
@@ -63,14 +71,16 @@ COUNTRIES = [
     "Qingdao/LYG port",
     "Jebel Ali/Bandar Abbas Port Port",
     "Tashkent",
+    "Mersin Port",
     "Aveiro",
     "Islam Qila/Herat",
     "Islam Qila",
     "Herat",
     "Chennai Port",
-    "bandar Abbas Port",
+    "bandar Abbas Port ",
     "Karachi/Bandar Abbas Port",
     "Chittagong port",
+    "Tashkent ",
     "Bandar Abbas Port/Herat Custom",
     "Herat customs",
     "LYG/Qingdao Port",
@@ -139,10 +149,117 @@ BASE_COMMODITIES = [
 ]
 
 
+# -------------------------
+# Helpers
+# -------------------------
+
+def norm_text(x) -> str:
+    if x is None:
+        return ""
+    return str(x).strip().lower()
+
+
+def safe_str(x) -> str:
+    if x is None or pd.isna(x):
+        return "-"
+    s = str(x).strip()
+    return s if s else "-"
+
+
+def fmt_any(value):
+    """Pretty formatting for values shown in UI."""
+    if value is None or pd.isna(value):
+        return "-"
+    if isinstance(value, (datetime, pd.Timestamp)):
+        return value.strftime("%d-%b-%y")  # 04-Nov-25
+    # if date-like string keep as-is
+    return str(value).strip() if str(value).strip() else "-"
+
+
+def parse_validity_to_date(v):
+    """
+    Try to parse Rates Validity into a python date.
+    Handles datetime, pandas Timestamp, and strings.
+    """
+    if v is None or pd.isna(v):
+        return None
+    if isinstance(v, (datetime, pd.Timestamp)):
+        return v.date()
+
+    s = str(v).strip()
+    if not s or s == "-" or s.lower() == "nan":
+        return None
+
+    # try pandas to_datetime on strings
+    try:
+        dt = pd.to_datetime(s, errors="coerce", dayfirst=True)
+        if pd.isna(dt):
+            return None
+        return dt.date()
+    except Exception:
+        return None
+
+
+def parse_price_to_float(v):
+    """Convert '$850.00' / '850' to float for best-option comparisons."""
+    if v is None or pd.isna(v):
+        return None
+    s = str(v).strip()
+    if not s or s == "-" or s.lower() == "nan":
+        return None
+    s = s.replace(",", "").replace("$", "").strip()
+    try:
+        return float(s)
+    except Exception:
+        return None
+
+
+def flatten_columns(cols):
+    """
+    Input: MultiIndex columns like ('Ocean Freight','20ft')
+    Output: 'Ocean Freight 20ft'
+    """
+    flat = []
+    for a, b in cols:
+        a = "" if (a is None or str(a).startswith("Unnamed")) else str(a).strip()
+        b = "" if (b is None or str(b).startswith("Unnamed")) else str(b).strip()
+        if a and b:
+            flat.append(f"{a} {b}".strip())
+        elif b:
+            flat.append(b.strip())
+        else:
+            flat.append(a.strip())
+    return flat
+
+
+def load_prices_df():
+    """
+    prices_updated.xlsx has 2 header rows -> read header=[0,1]
+    and flatten.
+    """
+    if not os.path.exists(PRICES_FILE):
+        return None
+
+    df = pd.read_excel(PRICES_FILE, header=[0, 1])
+    df.columns = flatten_columns(df.columns)
+    return df
+
+
+def find_col(df, needle: str):
+    """
+    Find a column containing needle (case-insensitive).
+    Returns column name or None.
+    """
+    n = needle.strip().lower()
+    for c in df.columns:
+        if n in str(c).lower():
+            return c
+    return None
+
+
 def get_commodities():
     """
-    Build a commodity list from BASE_COMMODITIES + unique commodities
-    stored in the Excel file (queries.xlsx).
+    Base commodity list + unique commodities from queries.xlsx
     """
     commodities = list(BASE_COMMODITIES)
 
@@ -161,7 +278,6 @@ def get_commodities():
                     if c and c not in commodities:
                         commodities.append(c)
         except Exception:
-            # If any error reading Excel, just fall back to base commodities
             pass
 
     return commodities
@@ -179,57 +295,180 @@ def save_to_excel(record):
     df_final.to_excel(EXCEL_FILE, index=False)
 
 
-def get_rates_for_origin(origin_value):
+def decide_ft_from_container(container_type: str):
     """
-    Fetch up to 4 matching rows from prices_updated.xlsx
-    where POL matches origin_value (case-insensitive).
-    Assumes headers are in 1st and 2nd row, and we use the 2nd row as header.
+    Decide whether to compare Ocean Freight 20ft or 40ft.
+    Defaults to 40ft if unclear.
     """
-    if not os.path.exists(PRICES_FILE):
-        return []
+    ct = norm_text(container_type)
+    if "20" in ct:
+        return "20ft"
+    if "40" in ct:
+        return "40ft"
+    return "40ft"
 
-    if not origin_value:
-        return []
 
-    try:
-        # Use the second row as header (header row index = 1)
-        df = pd.read_excel(PRICES_FILE, header=1)
-    except Exception:
-        return []
+def get_smart_rates(origin, destination, commodity, container_type, limit=4):
+    """
+    Smart matching with VALIDITY as top priority:
+      - Filter rows where Rates Validity is:
+          valid today or future, OR expired within RECENTLY_EXPIRED_DAYS.
+      - Then sort primarily by:
+          1) validity_status (valid first)
+          2) validity_date (later expiry is better)
+          3) match score (POD, Commodity, Container)
+          4) price (lowest is better)
+    Show all columns in UI.
 
-    if "POL" not in df.columns:
-        # If the expected column is not found, just return empty
-        return []
+    Returns: (rates_list, best_text)
+    """
+    df = load_prices_df()
+    if df is None or df.empty:
+        return [], None
 
-    # Case-insensitive match on POL
-    user_pol = str(origin_value).strip().lower()
-    pol_series = df["POL"].astype(str).str.strip().str.lower()
-    matched = df[pol_series == user_pol].head(4)
+    # Columns (sheet uses "Ocean Freight Rates Validity" etc.)
+    pol_col = find_col(df, "POL") or "POL"
+    pod_col = find_col(df, "POD") or "POD"
+    com_col = find_col(df, "Commodity")  # likely "Ocean Freight Commodity"
+    ct_col = find_col(df, "Type of Container")  # likely "Ocean Freight Type of Container"
+    validity_col = find_col(df, "Rates Validity")  # likely "Ocean Freight Rates Validity"
+    of20_col = find_col(df, "Ocean Freight 20ft") or "Ocean Freight 20ft"
+    of40_col = find_col(df, "Ocean Freight 40ft") or "Ocean Freight 40ft"
 
-    if matched.empty:
-        return []
+    if pol_col not in df.columns:
+        return [], None
 
-    # Only keep the fields we care about; if any are missing, value becomes None
-    desired_fields = [
-        "Date",
-        "POL",
-        "POD",
-        "Ocean Freight/40ft",
-        "Type of Container",
-        "Free days",
-        "Rates Validity",
-        "Commodity"
-    ]
+    user_pol = norm_text(origin)
+    user_pod = norm_text(destination)
+    user_com = norm_text(commodity)
+    user_ct = norm_text(container_type)
 
+    # Required filter: POL match
+    pol_series = df[pol_col].astype(str).str.strip().str.lower()
+    base = df[pol_series == user_pol].copy()
+
+    if base.empty:
+        return [], None
+
+    # Validity filtering: valid today/future OR recently expired
+    today = date.today()
+    cutoff = today - timedelta(days=RECENTLY_EXPIRED_DAYS)
+
+    if validity_col in base.columns:
+        base["_validity_date"] = base[validity_col].apply(parse_validity_to_date)
+    else:
+        base["_validity_date"] = None
+
+    # Keep only valid or recently expired
+    def keep_row(vd):
+        if vd is None:
+            return False
+        return vd >= cutoff
+
+    base = base[base["_validity_date"].apply(keep_row)]
+    if base.empty:
+        return [], None
+
+    # validity_status: 2 = valid (>=today), 1 = recently expired (cutoff..today-1)
+    def validity_status(vd):
+        if vd is None:
+            return 0
+        if vd >= today:
+            return 2
+        if vd >= cutoff:
+            return 1
+        return 0
+
+    base["_validity_status"] = base["_validity_date"].apply(validity_status)
+
+    # Match scoring (secondary)
+    def score_row(row):
+        score = 0
+        if pod_col in base.columns and user_pod and norm_text(row.get(pod_col, "")) == user_pod:
+            score += 3
+        if com_col in base.columns and user_com and norm_text(row.get(com_col, "")) == user_com:
+            score += 2
+        if ct_col in base.columns and user_ct and norm_text(row.get(ct_col, "")) == user_ct:
+            score += 1
+        return score
+
+    base["_match_score"] = base.apply(score_row, axis=1)
+
+    # Choose price column for "Best Option"
+    ft = decide_ft_from_container(container_type)
+    chosen_price_col = of20_col if ft == "20ft" else of40_col
+
+    if chosen_price_col in base.columns:
+        base["_price_num"] = base[chosen_price_col].apply(parse_price_to_float)
+    else:
+        base["_price_num"] = None
+
+    base["_has_price"] = base["_price_num"].apply(lambda x: 0 if x is None else 1)
+
+    # SORT: validity first (status + date), then matching, then price
+    base_sorted = base.sort_values(
+        by=["_validity_status", "_validity_date", "_match_score", "_has_price", "_price_num"],
+        ascending=[False, False, False, False, True],
+        na_position="last"
+    ).head(limit)
+
+    # Determine best option among shown rows: lowest price among valid first, else among recent-expired
+    best_idx = None
+    best_price = None
+
+    shown = base_sorted.copy()
+
+    # Prefer valid rows for best option
+    valid_rows = shown[shown["_validity_status"] == 2].dropna(subset=["_price_num"])
+    recent_rows = shown[shown["_validity_status"] == 1].dropna(subset=["_price_num"])
+
+    if not valid_rows.empty:
+        best_row = valid_rows.sort_values("_price_num", ascending=True).iloc[0]
+        best_idx = best_row.name
+        best_price = best_row["_price_num"]
+    elif not recent_rows.empty:
+        best_row = recent_rows.sort_values("_price_num", ascending=True).iloc[0]
+        best_idx = best_row.name
+        best_price = best_row["_price_num"]
+
+    # Build results: show ALL columns in each card
     results = []
-    for _, row in matched.iterrows():
-        record = {}
-        for field in desired_fields:
-            record[field] = row[field] if field in matched.columns else None
-        results.append(record)
+    all_cols = [c for c in df.columns]  # original flattened headers
 
-    return results
+    for idx, row in shown.iterrows():
+        # prepare label for validity
+        vd = row.get("_validity_date", None)
+        vstat = row.get("_validity_status", 0)
+        if vd is None:
+            validity_label = "Unknown"
+        elif vstat == 2:
+            validity_label = f"Valid (until {vd.strftime('%d/%m/%Y')})"
+        else:
+            validity_label = f"Recently expired (until {vd.strftime('%d/%m/%Y')})"
 
+        fields = []
+        for col in all_cols:
+            fields.append((col, fmt_any(row.get(col, None))))
+
+        results.append({
+            "is_best": (idx == best_idx),
+            "title": f"{safe_str(row.get(pol_col))} ➜ {safe_str(row.get(pod_col))}",
+            "validity_label": validity_label,
+            "chosen_ft": ft,
+            "chosen_price_col": chosen_price_col,
+            "fields": fields
+        })
+
+    best_text = None
+    if best_price is not None:
+        best_text = f"Best Option selected (lowest {ft} Ocean Freight based on validity-prioritized results): {best_price:.2f}"
+
+    return results, best_text
+
+
+# -------------------------
+# Routes
+# -------------------------
 
 @app.route("/", methods=["GET"])
 def index():
@@ -239,7 +478,8 @@ def index():
         commodities=get_commodities(),
         submitted=False,
         data=None,
-        rates=[]
+        rates=[],
+        best_text=None
     )
 
 
@@ -251,17 +491,20 @@ def submit():
         "shipping_from": request.form["shipping_from"],
         "destination": request.form["destination"],
         "commodity": request.form["commodity"],
-        "cargo_type": request.form["cargo_type"],
         "weight_tons": request.form["weight_tons"],
         "container_type": request.form["container_type"],
         "timestamp": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
     }
 
-    # Save new query
     save_to_excel(data)
 
-    # Fetch matching rates from prices_updated.xlsx based on POL/origin
-    rates = get_rates_for_origin(data["shipping_from"])
+    rates, best_text = get_smart_rates(
+        origin=data["shipping_from"],
+        destination=data["destination"],
+        commodity=data["commodity"],
+        container_type=data["container_type"],
+        limit=4
+    )
 
     return render_template(
         "form.html",
@@ -269,10 +512,10 @@ def submit():
         commodities=get_commodities(),
         submitted=True,
         data=data,
-        rates=rates
+        rates=rates,
+        best_text=best_text
     )
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-   # app.run(debug=True)
+    app.run(debug=True)
