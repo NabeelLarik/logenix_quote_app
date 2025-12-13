@@ -1,26 +1,26 @@
 from flask import Flask, request, render_template
 import pandas as pd
 import os
-from datetime import datetime, date, timedelta
+from datetime import datetime, date
 
 app = Flask(__name__)
 
 EXCEL_FILE = "queries.xlsx"
 PRICES_FILE = "prices_updated.xlsx"
+SHOW_LIMIT = 4  # show max 4 boxes
 
-# Recently expired window (days). Change if you want (e.g., 14).
-RECENTLY_EXPIRED_DAYS = 7
 
-# Locations / countries list for dropdown + autocomplete
+# -------------------------
+# DROPDOWN / AUTOCOMPLETE LISTS
+# -------------------------
+
 COUNTRIES = [
-    # Base countries
     "Pakistan", "United Arab Emirates", "Saudi Arabia", "Qatar", "Oman",
     "Kuwait", "Bahrain", "Turkey", "China", "India", "Afghanistan",
     "Uzbekistan", "Kazakhstan", "Turkmenistan", "Kyrgyzstan", "Tajikistan",
     "USA", "UK", "Germany", "France", "Italy", "Spain", "Netherlands",
     "Malaysia", "Indonesia", "Singapore", "Japan", "South Korea", "Australia",
 
-    # Ports / specific locations
     "Karachi Port",
     "Ladkrabang, Bangkok.",
     "Aqaba Port",
@@ -60,9 +60,7 @@ COUNTRIES = [
     "Ningbo",
     "Yiwu",
     "Czech Republic",
-    "Karachi Port ",
     "Fujairah",
-    "Dubai ",
     "Vizag (Visakhapatnam) Port",
     "Yiwu City",
     "Yiwu City/Ningbo",
@@ -71,16 +69,13 @@ COUNTRIES = [
     "Qingdao/LYG port",
     "Jebel Ali/Bandar Abbas Port Port",
     "Tashkent",
-    "Mersin Port",
     "Aveiro",
     "Islam Qila/Herat",
     "Islam Qila",
     "Herat",
     "Chennai Port",
-    "bandar Abbas Port ",
     "Karachi/Bandar Abbas Port",
     "Chittagong port",
-    "Tashkent ",
     "Bandar Abbas Port/Herat Custom",
     "Herat customs",
     "LYG/Qingdao Port",
@@ -97,7 +92,6 @@ COUNTRIES = [
     "Umm Qasr/Dammam/Jebel Ali /Latakia/Beirut/Aqaba Port"
 ]
 
-# Base commodity list (user-provided)
 BASE_COMMODITIES = [
     "Food Item",
     "Pharmaceutical Products",
@@ -150,11 +144,11 @@ BASE_COMMODITIES = [
 
 
 # -------------------------
-# Helpers
+# UTILS
 # -------------------------
 
 def norm_text(x) -> str:
-    if x is None:
+    if x is None or pd.isna(x):
         return ""
     return str(x).strip().lower()
 
@@ -166,46 +160,37 @@ def safe_str(x) -> str:
     return s if s else "-"
 
 
-def fmt_any(value):
-    """Pretty formatting for values shown in UI."""
-    if value is None or pd.isna(value):
+def fmt_any(x):
+    """UI-friendly formatting for values."""
+    if x is None or pd.isna(x):
         return "-"
-    if isinstance(value, (datetime, pd.Timestamp)):
-        return value.strftime("%d-%b-%y")  # 04-Nov-25
-    # if date-like string keep as-is
-    return str(value).strip() if str(value).strip() else "-"
+    if isinstance(x, (datetime, pd.Timestamp)):
+        return x.strftime("%d-%b-%Y")
+    s = str(x).strip()
+    return s if s else "-"
 
 
-def parse_validity_to_date(v):
-    """
-    Try to parse Rates Validity into a python date.
-    Handles datetime, pandas Timestamp, and strings.
-    """
+def parse_date_any(v):
+    """Parse excel date or string date to python date."""
     if v is None or pd.isna(v):
         return None
     if isinstance(v, (datetime, pd.Timestamp)):
         return v.date()
-
     s = str(v).strip()
-    if not s or s == "-" or s.lower() == "nan":
+    if not s:
         return None
-
-    # try pandas to_datetime on strings
-    try:
-        dt = pd.to_datetime(s, errors="coerce", dayfirst=True)
-        if pd.isna(dt):
-            return None
-        return dt.date()
-    except Exception:
+    dt = pd.to_datetime(s, errors="coerce", dayfirst=True)
+    if pd.isna(dt):
         return None
+    return dt.date()
 
 
 def parse_price_to_float(v):
-    """Convert '$850.00' / '850' to float for best-option comparisons."""
+    """Convert '$850.00'/'850' to float."""
     if v is None or pd.isna(v):
         return None
     s = str(v).strip()
-    if not s or s == "-" or s.lower() == "nan":
+    if not s:
         return None
     s = s.replace(",", "").replace("$", "").strip()
     try:
@@ -214,41 +199,95 @@ def parse_price_to_float(v):
         return None
 
 
-def flatten_columns(cols):
+def decide_ft_from_container(container_type: str):
     """
-    Input: MultiIndex columns like ('Ocean Freight','20ft')
-    Output: 'Ocean Freight 20ft'
+    Decide whether to use 20ft or 40ft pricing.
+    Defaults to 40ft if unclear.
     """
-    flat = []
-    for a, b in cols:
+    ct = norm_text(container_type)
+    if "20" in ct:
+        return "20ft"
+    if "40" in ct:
+        return "40ft"
+    return "40ft"
+
+
+def flatten_multiindex_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Flatten MultiIndex headers safely.
+    """
+    if not isinstance(df.columns, pd.MultiIndex):
+        return df
+
+    new_cols = []
+    for a, b in df.columns:
         a = "" if (a is None or str(a).startswith("Unnamed")) else str(a).strip()
         b = "" if (b is None or str(b).startswith("Unnamed")) else str(b).strip()
+
         if a and b:
-            flat.append(f"{a} {b}".strip())
+            new_cols.append(f"{a} {b}".strip())
         elif b:
-            flat.append(b.strip())
+            new_cols.append(b.strip())
         else:
-            flat.append(a.strip())
-    return flat
+            new_cols.append(a.strip())
+
+    df.columns = new_cols
+    return df
+
+
+def looks_like_bad_header(df: pd.DataFrame) -> bool:
+    """
+    Detect when a multiindex read accidentally used the first data row as header.
+    Typical symptom: columns like 'POL Karachi Port' or 'Rates Validity 2025-11-15 00:00:00'
+    We detect by checking if column names contain date-like fragments or look like 'POL <value>'.
+    """
+    cols = [str(c) for c in df.columns]
+    # If any column starts with 'POL ' or 'POD ' and has more than 1 word, it's suspicious.
+    suspicious_prefix = any(c.lower().startswith("pol ") or c.lower().startswith("pod ") for c in cols)
+    # If any column contains a time marker like '00:00:00', also suspicious
+    suspicious_time = any("00:00:00" in c for c in cols)
+    return suspicious_prefix or suspicious_time
 
 
 def load_prices_df():
     """
-    prices_updated.xlsx has 2 header rows -> read header=[0,1]
-    and flatten.
+    IMPORTANT FIX:
+    Your sheet is now single-header. We must NOT read it as header=[0,1],
+    because that combines headers with first data row.
+
+    Strategy:
+      1) Read as single header. If required columns exist -> use it.
+      2) Else try MultiIndex header and flatten.
     """
     if not os.path.exists(PRICES_FILE):
         return None
 
-    df = pd.read_excel(PRICES_FILE, header=[0, 1])
-    df.columns = flatten_columns(df.columns)
-    return df
+    # 1) Single-header first (correct for your updated file)
+    try:
+        df = pd.read_excel(PRICES_FILE)
+        if df is not None and not df.empty:
+            # Must contain these in some form
+            if "POL" in df.columns and "POD" in df.columns and "Commodity" in df.columns:
+                return df
+    except Exception:
+        pass
+
+    # 2) Fallback: MultiIndex (for older formats)
+    try:
+        df = pd.read_excel(PRICES_FILE, header=[0, 1])
+        df = flatten_multiindex_columns(df)
+        # If it looks like it combined first data row, reject it
+        if looks_like_bad_header(df):
+            return None
+        return df
+    except Exception:
+        return None
 
 
-def find_col(df, needle: str):
+def find_col(df: pd.DataFrame, needle: str):
     """
-    Find a column containing needle (case-insensitive).
-    Returns column name or None.
+    Find a column by partial match (case-insensitive).
+    Example: needle='Rates Validity' can match 'Ocean Freight Rates Validity'
     """
     n = needle.strip().lower()
     for c in df.columns:
@@ -257,9 +296,51 @@ def find_col(df, needle: str):
     return None
 
 
+def pick_ocean_freight_column(df: pd.DataFrame, ft: str):
+    """
+    Prefer 'Ocean Freight (20ft)'/'Ocean Freight (40ft)' OR 'Ocean Freight 20ft/40ft'
+    - Supports both naming styles.
+    """
+    # common variants
+    candidates = [
+        f"Ocean Freight ({ft})",
+        f"Ocean Freight {ft}",
+        f"Ocean Freight/{ft}",
+        f"Ocean Freight {ft.replace('ft','')}",  # just in case
+    ]
+    for cand in candidates:
+        c = find_col(df, cand)
+        if c:
+            return c
+
+    # fallback to any ocean freight column
+    c = find_col(df, "Ocean Freight")
+    return c
+
+
+def pick_exworks_column(df: pd.DataFrame, ft: str):
+    """
+    Try to find Ex-works price column:
+    supports 'Ex-works (20ft)' / 'Ex-works 20ft' and similar.
+    """
+    candidates = [
+        f"Ex-works ({ft})",
+        f"Ex works ({ft})",
+        f"Ex-works {ft}",
+        f"Ex works {ft}",
+        "Ex-works",
+        "Ex works"
+    ]
+    for cand in candidates:
+        c = find_col(df, cand)
+        if c:
+            return c
+    return None
+
+
 def get_commodities():
     """
-    Base commodity list + unique commodities from queries.xlsx
+    Base list + new commodities typed by users (read from queries.xlsx).
     """
     commodities = list(BASE_COMMODITIES)
 
@@ -267,13 +348,7 @@ def get_commodities():
         try:
             df = pd.read_excel(EXCEL_FILE)
             if "commodity" in df.columns:
-                existing = (
-                    df["commodity"]
-                    .dropna()
-                    .astype(str)
-                    .str.strip()
-                    .unique()
-                )
+                existing = df["commodity"].dropna().astype(str).str.strip().unique()
                 for c in existing:
                     if c and c not in commodities:
                         commodities.append(c)
@@ -284,6 +359,9 @@ def get_commodities():
 
 
 def save_to_excel(record):
+    """
+    Save query to queries.xlsx
+    """
     df_new = pd.DataFrame([record])
 
     if os.path.exists(EXCEL_FILE):
@@ -295,179 +373,117 @@ def save_to_excel(record):
     df_final.to_excel(EXCEL_FILE, index=False)
 
 
-def decide_ft_from_container(container_type: str):
-    """
-    Decide whether to compare Ocean Freight 20ft or 40ft.
-    Defaults to 40ft if unclear.
-    """
-    ct = norm_text(container_type)
-    if "20" in ct:
-        return "20ft"
-    if "40" in ct:
-        return "40ft"
-    return "40ft"
+# -------------------------
+# STRICT MATCH + VALIDITY + BEST OPTION LOGIC
+# -------------------------
 
-
-def get_smart_rates(origin, destination, commodity, container_type, limit=4):
+def get_strict_quotes(origin, destination, commodity, container_type, limit=4):
     """
-    Smart matching with VALIDITY as top priority:
-      - Filter rows where Rates Validity is:
-          valid today or future, OR expired within RECENTLY_EXPIRED_DAYS.
-      - Then sort primarily by:
-          1) validity_status (valid first)
-          2) validity_date (later expiry is better)
-          3) match score (POD, Commodity, Container)
-          4) price (lowest is better)
-    Show all columns in UI.
-
-    Returns: (rates_list, best_text)
+    STRICT:
+      - POL + POD + Commodity must match (case-insensitive exact)
+      - Rates Validity decides valid/expired and sort priority
+      - Show up to 4 rows (all matching the same trio)
+      - Best option ALWAYS if at least one valid row exists:
+          best = lowest Ocean Freight (20/40 based on user's container input) among valid rows
+      - Show Ocean Freight + Ex-works prominently + show all columns below
     """
     df = load_prices_df()
     if df is None or df.empty:
-        return [], None
+        return [], None, "Could not load prices_updated.xlsx properly. Please confirm the file exists and headers are correct."
 
-    # Columns (sheet uses "Ocean Freight Rates Validity" etc.)
-    pol_col = find_col(df, "POL") or "POL"
-    pod_col = find_col(df, "POD") or "POD"
-    com_col = find_col(df, "Commodity")  # likely "Ocean Freight Commodity"
-    ct_col = find_col(df, "Type of Container")  # likely "Ocean Freight Type of Container"
-    validity_col = find_col(df, "Rates Validity")  # likely "Ocean Freight Rates Validity"
-    of20_col = find_col(df, "Ocean Freight 20ft") or "Ocean Freight 20ft"
-    of40_col = find_col(df, "Ocean Freight 40ft") or "Ocean Freight 40ft"
+    # In your updated sheet you likely have clean columns:
+    pol_col = "POL" if "POL" in df.columns else find_col(df, "POL")
+    pod_col = "POD" if "POD" in df.columns else find_col(df, "POD")
+    com_col = "Commodity" if "Commodity" in df.columns else find_col(df, "Commodity")
+    validity_col = "Rates Validity" if "Rates Validity" in df.columns else find_col(df, "Rates Validity")
 
-    if pol_col not in df.columns:
-        return [], None
+    if not pol_col or not pod_col or not com_col or not validity_col:
+        return [], None, "Missing required columns in prices_updated.xlsx (need POL, POD, Commodity, Rates Validity)."
 
     user_pol = norm_text(origin)
     user_pod = norm_text(destination)
     user_com = norm_text(commodity)
-    user_ct = norm_text(container_type)
 
-    # Required filter: POL match
-    pol_series = df[pol_col].astype(str).str.strip().str.lower()
-    base = df[pol_series == user_pol].copy()
+    # Strict match
+    df_match = df[
+        (df[pol_col].astype(str).str.strip().str.lower() == user_pol) &
+        (df[pod_col].astype(str).str.strip().str.lower() == user_pod) &
+        (df[com_col].astype(str).str.strip().str.lower() == user_com)
+    ].copy()
 
-    if base.empty:
-        return [], None
+    if df_match.empty:
+        return [], None, None
 
-    # Validity filtering: valid today/future OR recently expired
     today = date.today()
-    cutoff = today - timedelta(days=RECENTLY_EXPIRED_DAYS)
+    df_match["_validity_date"] = df_match[validity_col].apply(parse_date_any)
+    df_match["_is_valid"] = df_match["_validity_date"].apply(lambda d: (d is not None and d >= today))
 
-    if validity_col in base.columns:
-        base["_validity_date"] = base[validity_col].apply(parse_validity_to_date)
-    else:
-        base["_validity_date"] = None
-
-    # Keep only valid or recently expired
-    def keep_row(vd):
-        if vd is None:
-            return False
-        return vd >= cutoff
-
-    base = base[base["_validity_date"].apply(keep_row)]
-    if base.empty:
-        return [], None
-
-    # validity_status: 2 = valid (>=today), 1 = recently expired (cutoff..today-1)
-    def validity_status(vd):
-        if vd is None:
-            return 0
-        if vd >= today:
-            return 2
-        if vd >= cutoff:
-            return 1
-        return 0
-
-    base["_validity_status"] = base["_validity_date"].apply(validity_status)
-
-    # Match scoring (secondary)
-    def score_row(row):
-        score = 0
-        if pod_col in base.columns and user_pod and norm_text(row.get(pod_col, "")) == user_pod:
-            score += 3
-        if com_col in base.columns and user_com and norm_text(row.get(com_col, "")) == user_com:
-            score += 2
-        if ct_col in base.columns and user_ct and norm_text(row.get(ct_col, "")) == user_ct:
-            score += 1
-        return score
-
-    base["_match_score"] = base.apply(score_row, axis=1)
-
-    # Choose price column for "Best Option"
     ft = decide_ft_from_container(container_type)
-    chosen_price_col = of20_col if ft == "20ft" else of40_col
+    ocean_col = pick_ocean_freight_column(df_match, ft)
+    exworks_col = pick_exworks_column(df_match, ft)
 
-    if chosen_price_col in base.columns:
-        base["_price_num"] = base[chosen_price_col].apply(parse_price_to_float)
+    # Price parse for best option
+    if ocean_col and ocean_col in df_match.columns:
+        df_match["_ocean_price"] = df_match[ocean_col].apply(parse_price_to_float)
     else:
-        base["_price_num"] = None
+        df_match["_ocean_price"] = None
 
-    base["_has_price"] = base["_price_num"].apply(lambda x: 0 if x is None else 1)
-
-    # SORT: validity first (status + date), then matching, then price
-    base_sorted = base.sort_values(
-        by=["_validity_status", "_validity_date", "_match_score", "_has_price", "_price_num"],
-        ascending=[False, False, False, False, True],
+    # Sort: validity first, then latest validity date
+    df_match["_valid_sort"] = df_match["_is_valid"].apply(lambda x: 1 if x else 0)
+    df_match = df_match.sort_values(
+        by=["_valid_sort", "_validity_date"],
+        ascending=[False, False],
         na_position="last"
     ).head(limit)
 
-    # Determine best option among shown rows: lowest price among valid first, else among recent-expired
+    # Best option always if any valid row exists
     best_idx = None
-    best_price = None
-
-    shown = base_sorted.copy()
-
-    # Prefer valid rows for best option
-    valid_rows = shown[shown["_validity_status"] == 2].dropna(subset=["_price_num"])
-    recent_rows = shown[shown["_validity_status"] == 1].dropna(subset=["_price_num"])
-
+    valid_rows = df_match[(df_match["_is_valid"] == True) & (df_match["_ocean_price"].notna())]
     if not valid_rows.empty:
-        best_row = valid_rows.sort_values("_price_num", ascending=True).iloc[0]
-        best_idx = best_row.name
-        best_price = best_row["_price_num"]
-    elif not recent_rows.empty:
-        best_row = recent_rows.sort_values("_price_num", ascending=True).iloc[0]
-        best_idx = best_row.name
-        best_price = best_row["_price_num"]
+        best_idx = valid_rows.sort_values("_ocean_price", ascending=True).iloc[0].name
 
-    # Build results: show ALL columns in each card
+    # Display all columns except internal
+    display_cols = [c for c in df_match.columns if not str(c).startswith("_")]
+
     results = []
-    all_cols = [c for c in df.columns]  # original flattened headers
-
-    for idx, row in shown.iterrows():
-        # prepare label for validity
-        vd = row.get("_validity_date", None)
-        vstat = row.get("_validity_status", 0)
+    for idx, row in df_match.iterrows():
+        vd = row.get("_validity_date")
         if vd is None:
-            validity_label = "Unknown"
-        elif vstat == 2:
-            validity_label = f"Valid (until {vd.strftime('%d/%m/%Y')})"
+            validity_label = "Validity: Unknown"
+            validity_kind = "unknown"
+        elif row.get("_is_valid"):
+            validity_label = f"Validity: Valid (until {vd.strftime('%d/%m/%Y')})"
+            validity_kind = "valid"
         else:
-            validity_label = f"Recently expired (until {vd.strftime('%d/%m/%Y')})"
-
-        fields = []
-        for col in all_cols:
-            fields.append((col, fmt_any(row.get(col, None))))
+            validity_label = f"Validity: Expired (until {vd.strftime('%d/%m/%Y')})"
+            validity_kind = "expired"
 
         results.append({
-            "is_best": (idx == best_idx),
+            "is_best": (best_idx is not None and idx == best_idx),
             "title": f"{safe_str(row.get(pol_col))} ➜ {safe_str(row.get(pod_col))}",
             "validity_label": validity_label,
-            "chosen_ft": ft,
-            "chosen_price_col": chosen_price_col,
-            "fields": fields
+            "validity_kind": validity_kind,
+
+            "ocean_col": ocean_col or "Ocean Freight",
+            "ocean_val": fmt_any(row.get(ocean_col)) if ocean_col else "-",
+
+            "exworks_col": exworks_col,
+            "exworks_val": fmt_any(row.get(exworks_col)) if exworks_col else "-",
+
+            "fields": [(col, fmt_any(row.get(col))) for col in display_cols]
         })
 
     best_text = None
-    if best_price is not None:
-        best_text = f"Best Option selected (lowest {ft} Ocean Freight based on validity-prioritized results): {best_price:.2f}"
+    if best_idx is not None:
+        best_price = df_match.loc[best_idx, "_ocean_price"]
+        if best_price is not None:
+            best_text = f"Best Option available (valid rate + lowest {ft} Ocean Freight): {best_price:.2f}"
 
-    return results, best_text
+    return results, best_text, None
 
 
 # -------------------------
-# Routes
+# ROUTES
 # -------------------------
 
 @app.route("/", methods=["GET"])
@@ -479,7 +495,8 @@ def index():
         submitted=False,
         data=None,
         rates=[],
-        best_text=None
+        best_text=None,
+        error_msg=None
     )
 
 
@@ -498,12 +515,12 @@ def submit():
 
     save_to_excel(data)
 
-    rates, best_text = get_smart_rates(
+    rates, best_text, error_msg = get_strict_quotes(
         origin=data["shipping_from"],
         destination=data["destination"],
         commodity=data["commodity"],
         container_type=data["container_type"],
-        limit=4
+        limit=SHOW_LIMIT
     )
 
     return render_template(
@@ -513,7 +530,8 @@ def submit():
         submitted=True,
         data=data,
         rates=rates,
-        best_text=best_text
+        best_text=best_text,
+        error_msg=error_msg
     )
 
 

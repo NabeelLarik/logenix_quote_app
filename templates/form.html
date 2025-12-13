@@ -7,15 +7,8 @@
 
     <style>
         body { background: #f5f6fa; }
-        .form-card {
-            max-width: 950px;
-            margin: auto;
-            border-radius: 12px;
-        }
-        .card {
-            border: none;
-            border-radius: 12px;
-        }
+        .form-card { max-width: 1000px; margin: auto; border-radius: 12px; }
+        .card { border: none; border-radius: 12px; }
         .form-label { font-weight: 600; }
 
         .rate-card {
@@ -27,6 +20,7 @@
             border: 2px solid #198754;
             box-shadow: 0 0 0 0.15rem rgba(25, 135, 84, .15);
         }
+
         .rate-header {
             display: flex;
             justify-content: space-between;
@@ -34,6 +28,7 @@
             font-weight: 700;
             color: #0d6efd;
         }
+
         .badge-best {
             background: #198754;
             color: white;
@@ -42,33 +37,76 @@
             padding: 6px 10px;
             font-size: 12px;
         }
-        .badge-validity {
-            background: #0dcaf0;
-            color: #052c65;
+
+        .badge-valid {
+            background: #d1e7dd;
+            color: #0f5132;
             font-weight: 700;
             border-radius: 999px;
             padding: 6px 10px;
             font-size: 12px;
         }
+
+        .badge-expired {
+            background: #f8d7da;
+            color: #842029;
+            font-weight: 700;
+            border-radius: 999px;
+            padding: 6px 10px;
+            font-size: 12px;
+        }
+
+        .badge-unknown {
+            background: #e2e3e5;
+            color: #41464b;
+            font-weight: 700;
+            border-radius: 999px;
+            padding: 6px 10px;
+            font-size: 12px;
+        }
+
         .muted { color: #6c757d; font-size: 13px; }
 
-        .kv {
+        .price-box {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 10px;
+            padding: 10px;
             margin-top: 10px;
+        }
+        .price-box .line {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 4px 0;
+        }
+        .price-box .label {
+            font-weight: 600;   /* not too bold */
+        }
+        .price-box .value {
+            font-weight: 400;   /* normal */
+        }
+
+        /* Key/Value table */
+        .kv {
+            margin-top: 12px;
             font-size: 14px;
+            font-weight: 400;   /* normal overall */
         }
         .kv .rowline {
             display: flex;
             justify-content: space-between;
-            gap: 10px;
+            gap: 12px;
             padding: 6px 0;
             border-bottom: 1px dashed #e9ecef;
         }
         .kv .key {
-            font-weight: 700;
+            font-weight: 600;   /* semi-bold only for key */
             color: #212529;
             flex: 1;
         }
         .kv .val {
+            font-weight: 400;   /* normal value */
             color: #212529;
             flex: 1;
             text-align: right;
@@ -86,14 +124,12 @@
 
         <form method="post" action="/submit">
 
-            <!-- Shared datalist for all locations -->
             <datalist id="locations">
                 {% for c in countries %}
                 <option value="{{ c }}">
                 {% endfor %}
             </datalist>
 
-            <!-- Datalist for container types -->
             <datalist id="container_types">
                 <option value="Dry">
                 <option value="Break Bulk">
@@ -108,7 +144,6 @@
                 <option value="40ft Reefer">
             </datalist>
 
-            <!-- Datalist for commodities -->
             <datalist id="commodities">
                 {% for m in commodities %}
                 <option value="{{ m }}">
@@ -182,7 +217,11 @@
 
         {% if submitted %}
             <hr class="my-4">
-            <h5 class="fw-bold text-primary">Matching Rates (Validity First)</h5>
+            <h5 class="fw-bold text-primary">Matching Quotes</h5>
+
+            {% if error_msg %}
+                <div class="alert alert-warning mt-3">{{ error_msg }}</div>
+            {% endif %}
 
             {% if best_text %}
                 <div class="alert alert-success mt-3 mb-2">
@@ -195,21 +234,38 @@
                     {% for r in rates %}
                     <div class="col">
                         <div class="p-3 rate-card h-100 {% if r.is_best %}best{% endif %}">
+
                             <div class="rate-header mb-2">
                                 <div>{{ r.title }}</div>
-                                <div class="d-flex gap-2">
-                                    <span class="badge-validity">{{ r.validity_label }}</span>
+                                <div class="d-flex gap-2 align-items-center">
+                                    {% if r.validity_kind == "valid" %}
+                                        <span class="badge-valid">{{ r.validity_label }}</span>
+                                    {% elif r.validity_kind == "expired" %}
+                                        <span class="badge-expired">{{ r.validity_label }}</span>
+                                    {% else %}
+                                        <span class="badge-unknown">{{ r.validity_label }}</span>
+                                    {% endif %}
+
                                     {% if r.is_best %}
                                         <span class="badge-best">Best Option</span>
                                     {% endif %}
                                 </div>
                             </div>
 
-                            <div class="muted mb-2">
-                                Best-option freight size used: <strong>{{ r.chosen_ft }}</strong>
+                            <div class="price-box">
+                                <div class="line">
+                                    <div class="label">{{ r.ocean_col }}</div>
+                                    <div class="value">{{ r.ocean_val }}</div>
+                                </div>
+
+                                {% if r.exworks_col %}
+                                <div class="line">
+                                    <div class="label">{{ r.exworks_col }}</div>
+                                    <div class="value">{{ r.exworks_val }}</div>
+                                </div>
+                                {% endif %}
                             </div>
 
-                            <!-- Show ALL excel headers/columns -->
                             <div class="kv">
                                 {% for k, v in r.fields %}
                                 <div class="rowline">
@@ -225,7 +281,7 @@
                 </div>
             {% else %}
                 <p class="text-muted mt-2">
-                    No valid or recently-expired rates found for the provided origin (POL).
+                    No quotes found matching POL + POD + Commodity in <code>prices_updated.xlsx</code>.
                 </p>
             {% endif %}
         {% endif %}
