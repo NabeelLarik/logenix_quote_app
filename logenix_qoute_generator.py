@@ -200,10 +200,6 @@ def parse_price_to_float(v):
 
 
 def decide_ft_from_container(container_type: str):
-    """
-    Decide whether to use 20ft or 40ft pricing.
-    Defaults to 40ft if unclear.
-    """
     ct = norm_text(container_type)
     if "20" in ct:
         return "20ft"
@@ -213,9 +209,7 @@ def decide_ft_from_container(container_type: str):
 
 
 def flatten_multiindex_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Flatten MultiIndex headers safely.
-    """
+    """Flatten MultiIndex headers safely."""
     if not isinstance(df.columns, pd.MultiIndex):
         return df
 
@@ -236,47 +230,33 @@ def flatten_multiindex_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def looks_like_bad_header(df: pd.DataFrame) -> bool:
-    """
-    Detect when a multiindex read accidentally used the first data row as header.
-    Typical symptom: columns like 'POL Karachi Port' or 'Rates Validity 2025-11-15 00:00:00'
-    We detect by checking if column names contain date-like fragments or look like 'POL <value>'.
-    """
     cols = [str(c) for c in df.columns]
-    # If any column starts with 'POL ' or 'POD ' and has more than 1 word, it's suspicious.
     suspicious_prefix = any(c.lower().startswith("pol ") or c.lower().startswith("pod ") for c in cols)
-    # If any column contains a time marker like '00:00:00', also suspicious
     suspicious_time = any("00:00:00" in c for c in cols)
     return suspicious_prefix or suspicious_time
 
 
 def load_prices_df():
     """
-    IMPORTANT FIX:
-    Your sheet is now single-header. We must NOT read it as header=[0,1],
-    because that combines headers with first data row.
-
-    Strategy:
-      1) Read as single header. If required columns exist -> use it.
-      2) Else try MultiIndex header and flatten.
+    1) Try single-header first (your updated format)
+    2) Fallback to MultiIndex header read
     """
     if not os.path.exists(PRICES_FILE):
         return None
 
-    # 1) Single-header first (correct for your updated file)
+    # Single header first
     try:
         df = pd.read_excel(PRICES_FILE)
         if df is not None and not df.empty:
-            # Must contain these in some form
             if "POL" in df.columns and "POD" in df.columns and "Commodity" in df.columns:
                 return df
     except Exception:
         pass
 
-    # 2) Fallback: MultiIndex (for older formats)
+    # MultiIndex fallback
     try:
         df = pd.read_excel(PRICES_FILE, header=[0, 1])
         df = flatten_multiindex_columns(df)
-        # If it looks like it combined first data row, reject it
         if looks_like_bad_header(df):
             return None
         return df
@@ -285,10 +265,6 @@ def load_prices_df():
 
 
 def find_col(df: pd.DataFrame, needle: str):
-    """
-    Find a column by partial match (case-insensitive).
-    Example: needle='Rates Validity' can match 'Ocean Freight Rates Validity'
-    """
     n = needle.strip().lower()
     for c in df.columns:
         if n in str(c).lower():
@@ -297,32 +273,20 @@ def find_col(df: pd.DataFrame, needle: str):
 
 
 def pick_ocean_freight_column(df: pd.DataFrame, ft: str):
-    """
-    Prefer 'Ocean Freight (20ft)'/'Ocean Freight (40ft)' OR 'Ocean Freight 20ft/40ft'
-    - Supports both naming styles.
-    """
-    # common variants
     candidates = [
         f"Ocean Freight ({ft})",
         f"Ocean Freight {ft}",
         f"Ocean Freight/{ft}",
-        f"Ocean Freight {ft.replace('ft','')}",  # just in case
+        f"Ocean Freight {ft.replace('ft','')}",
     ]
     for cand in candidates:
         c = find_col(df, cand)
         if c:
             return c
-
-    # fallback to any ocean freight column
-    c = find_col(df, "Ocean Freight")
-    return c
+    return find_col(df, "Ocean Freight")
 
 
 def pick_exworks_column(df: pd.DataFrame, ft: str):
-    """
-    Try to find Ex-works price column:
-    supports 'Ex-works (20ft)' / 'Ex-works 20ft' and similar.
-    """
     candidates = [
         f"Ex-works ({ft})",
         f"Ex works ({ft})",
@@ -339,9 +303,6 @@ def pick_exworks_column(df: pd.DataFrame, ft: str):
 
 
 def get_commodities():
-    """
-    Base list + new commodities typed by users (read from queries.xlsx).
-    """
     commodities = list(BASE_COMMODITIES)
 
     if os.path.exists(EXCEL_FILE):
@@ -359,9 +320,6 @@ def get_commodities():
 
 
 def save_to_excel(record):
-    """
-    Save query to queries.xlsx
-    """
     df_new = pd.DataFrame([record])
 
     if os.path.exists(EXCEL_FILE):
@@ -378,20 +336,10 @@ def save_to_excel(record):
 # -------------------------
 
 def get_strict_quotes(origin, destination, commodity, container_type, limit=4):
-    """
-    STRICT:
-      - POL + POD + Commodity must match (case-insensitive exact)
-      - Rates Validity decides valid/expired and sort priority
-      - Show up to 4 rows (all matching the same trio)
-      - Best option ALWAYS if at least one valid row exists:
-          best = lowest Ocean Freight (20/40 based on user's container input) among valid rows
-      - Show Ocean Freight + Ex-works prominently + show all columns below
-    """
     df = load_prices_df()
     if df is None or df.empty:
         return [], None, "Could not load prices_updated.xlsx properly. Please confirm the file exists and headers are correct."
 
-    # In your updated sheet you likely have clean columns:
     pol_col = "POL" if "POL" in df.columns else find_col(df, "POL")
     pod_col = "POD" if "POD" in df.columns else find_col(df, "POD")
     com_col = "Commodity" if "Commodity" in df.columns else find_col(df, "Commodity")
@@ -404,7 +352,6 @@ def get_strict_quotes(origin, destination, commodity, container_type, limit=4):
     user_pod = norm_text(destination)
     user_com = norm_text(commodity)
 
-    # Strict match
     df_match = df[
         (df[pol_col].astype(str).str.strip().str.lower() == user_pol) &
         (df[pod_col].astype(str).str.strip().str.lower() == user_pod) &
@@ -422,13 +369,11 @@ def get_strict_quotes(origin, destination, commodity, container_type, limit=4):
     ocean_col = pick_ocean_freight_column(df_match, ft)
     exworks_col = pick_exworks_column(df_match, ft)
 
-    # Price parse for best option
     if ocean_col and ocean_col in df_match.columns:
         df_match["_ocean_price"] = df_match[ocean_col].apply(parse_price_to_float)
     else:
         df_match["_ocean_price"] = None
 
-    # Sort: validity first, then latest validity date
     df_match["_valid_sort"] = df_match["_is_valid"].apply(lambda x: 1 if x else 0)
     df_match = df_match.sort_values(
         by=["_valid_sort", "_validity_date"],
@@ -436,13 +381,12 @@ def get_strict_quotes(origin, destination, commodity, container_type, limit=4):
         na_position="last"
     ).head(limit)
 
-    # Best option always if any valid row exists
+    # Best option: any valid row with a numeric ocean price
     best_idx = None
     valid_rows = df_match[(df_match["_is_valid"] == True) & (df_match["_ocean_price"].notna())]
     if not valid_rows.empty:
-        best_idx = valid_rows.sort_values("_ocean_price", ascending=True).iloc[0].name
+        best_idx = valid_rows.sort_values("_ocean_price", ascending=True).index[0]
 
-    # Display all columns except internal
     display_cols = [c for c in df_match.columns if not str(c).startswith("_")]
 
     results = []
@@ -473,11 +417,13 @@ def get_strict_quotes(origin, destination, commodity, container_type, limit=4):
             "fields": [(col, fmt_any(row.get(col))) for col in display_cols]
         })
 
+    # ✅ FIX for Pylance: do NOT float() a pandas Scalar directly.
     best_text = None
     if best_idx is not None:
-        best_price = df_match.loc[best_idx, "_ocean_price"]
-        if best_price is not None:
-            best_text = f"Best Option available (valid rate + lowest {ft} Ocean Freight): {best_price:.2f}"
+        raw_best_price = df_match.at[best_idx, "_ocean_price"]
+        best_price_num = parse_price_to_float(raw_best_price)  # returns float|None safely
+        if best_price_num is not None:
+            best_text = f"Best Option available (valid rate + lowest {ft} Ocean Freight): {best_price_num:.2f}"
 
     return results, best_text, None
 
