@@ -7,7 +7,96 @@ app = Flask(__name__)
 
 EXCEL_FILE = "queries.xlsx"
 PRICES_FILE = "prices_updated.xlsx"
-SHOW_LIMIT = 4  # show max 4 boxes
+SHOW_LIMIT = 4  # show max 4 quote boxes
+
+
+# -------------------------
+# ROUTES (CURRENTLY 3)
+# -------------------------
+
+ROUTES = [
+    {
+        "id": "R1",
+        "title": "Route 1",
+        "path": "Karachi Port → Chaman Border (Afghanistan/Pakistan) → Torghundi Border (Turkmenistan/Afghanistan) → Ashgabat Port (Turkmenistan).",
+        "origin_keywords": ["karachi port", "karachi"],
+        "destination_city_keywords": ["ashgabat", "ashgabat port"],
+        "destination_country_keywords": ["turkmenistan"],
+    },
+    {
+        "id": "R2",
+        "title": "Route 2",
+        "path": "Karachi Port → Peshawar → Torkham Border (Afghanistan/Pakistan) → Kabul → Shir Khan Border (Tajikistan/Afghanistan) → Dushanbe (Tajikistan).",
+        "origin_keywords": ["karachi port", "karachi"],
+        "destination_city_keywords": ["dushanbe", "dushambe"],  # handle spelling variant
+        "destination_country_keywords": ["tajikistan"],
+    },
+    {
+        "id": "R3",
+        "title": "Route 3",
+        "path": "Karachi Port → Peshawar → Torkham Border (Afghanistan/Pakistan) → Kabul → Hairatan Border (Uzbekistan/Afghanistan) → Tashkent → Almaty (Kazakhstan).",
+        "origin_keywords": ["karachi port", "karachi"],
+        "destination_city_keywords": ["almaty"],
+        "destination_country_keywords": ["kazakhstan"],
+    },
+]
+
+
+def norm_text(x) -> str:
+    if x is None or pd.isna(x):
+        return ""
+    return str(x).strip().lower()
+
+
+def route_match_score(origin: str, destination: str, route: dict) -> int:
+    """
+    Scoring:
+      - origin must match (otherwise score = 0)
+      - destination city match => +3
+      - destination country match => +1
+    Best route = highest score.
+    """
+    o = norm_text(origin)
+    d = norm_text(destination)
+
+    origin_ok = any(k in o for k in route.get("origin_keywords", []))
+    if not origin_ok:
+        return 0
+
+    score = 1  # baseline if origin matched (means we provide from that origin)
+    if any(k in d for k in route.get("destination_city_keywords", [])):
+        score += 3
+    if any(k in d for k in route.get("destination_country_keywords", [])):
+        score += 1
+
+    # If destination didn't match at all, treat as not a route match
+    # (so we don't show routes just because origin matches)
+    if score == 1:
+        return 0
+
+    return score
+
+
+def get_matching_routes(origin: str, destination: str):
+    """
+    Returns:
+      matched_routes: list of route dicts (with score)
+      best_route_id: str|None
+    """
+    scored = []
+    for r in ROUTES:
+        s = route_match_score(origin, destination, r)
+        if s > 0:
+            rr = dict(r)
+            rr["score"] = s
+            scored.append(rr)
+
+    if not scored:
+        return [], None
+
+    scored.sort(key=lambda x: x["score"], reverse=True)
+    best_route_id = scored[0]["id"]
+    return scored, best_route_id
 
 
 # -------------------------
@@ -144,14 +233,8 @@ BASE_COMMODITIES = [
 
 
 # -------------------------
-# UTILS
+# EXCEL HELPERS (PRICES)
 # -------------------------
-
-def norm_text(x) -> str:
-    if x is None or pd.isna(x):
-        return ""
-    return str(x).strip().lower()
-
 
 def safe_str(x) -> str:
     if x is None or pd.isna(x):
@@ -161,7 +244,6 @@ def safe_str(x) -> str:
 
 
 def fmt_any(x):
-    """UI-friendly formatting for values."""
     if x is None or pd.isna(x):
         return "-"
     if isinstance(x, (datetime, pd.Timestamp)):
@@ -171,7 +253,6 @@ def fmt_any(x):
 
 
 def parse_date_any(v):
-    """Parse excel date or string date to python date."""
     if v is None or pd.isna(v):
         return None
     if isinstance(v, (datetime, pd.Timestamp)):
@@ -186,7 +267,6 @@ def parse_date_any(v):
 
 
 def parse_price_to_float(v):
-    """Convert '$850.00'/'850' to float."""
     if v is None or pd.isna(v):
         return None
     s = str(v).strip()
@@ -209,7 +289,6 @@ def decide_ft_from_container(container_type: str):
 
 
 def flatten_multiindex_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Flatten MultiIndex headers safely."""
     if not isinstance(df.columns, pd.MultiIndex):
         return df
 
@@ -217,14 +296,12 @@ def flatten_multiindex_columns(df: pd.DataFrame) -> pd.DataFrame:
     for a, b in df.columns:
         a = "" if (a is None or str(a).startswith("Unnamed")) else str(a).strip()
         b = "" if (b is None or str(b).startswith("Unnamed")) else str(b).strip()
-
         if a and b:
             new_cols.append(f"{a} {b}".strip())
         elif b:
             new_cols.append(b.strip())
         else:
             new_cols.append(a.strip())
-
     df.columns = new_cols
     return df
 
@@ -237,14 +314,10 @@ def looks_like_bad_header(df: pd.DataFrame) -> bool:
 
 
 def load_prices_df():
-    """
-    1) Try single-header first (your updated format)
-    2) Fallback to MultiIndex header read
-    """
     if not os.path.exists(PRICES_FILE):
         return None
 
-    # Single header first
+    # Prefer single header for updated sheet
     try:
         df = pd.read_excel(PRICES_FILE)
         if df is not None and not df.empty:
@@ -253,7 +326,7 @@ def load_prices_df():
     except Exception:
         pass
 
-    # MultiIndex fallback
+    # Fallback for older formats
     try:
         df = pd.read_excel(PRICES_FILE, header=[0, 1])
         df = flatten_multiindex_columns(df)
@@ -304,7 +377,6 @@ def pick_exworks_column(df: pd.DataFrame, ft: str):
 
 def get_commodities():
     commodities = list(BASE_COMMODITIES)
-
     if os.path.exists(EXCEL_FILE):
         try:
             df = pd.read_excel(EXCEL_FILE)
@@ -315,25 +387,18 @@ def get_commodities():
                         commodities.append(c)
         except Exception:
             pass
-
     return commodities
 
 
 def save_to_excel(record):
     df_new = pd.DataFrame([record])
-
     if os.path.exists(EXCEL_FILE):
         df_existing = pd.read_excel(EXCEL_FILE)
         df_final = pd.concat([df_existing, df_new], ignore_index=True)
     else:
         df_final = df_new
-
     df_final.to_excel(EXCEL_FILE, index=False)
 
-
-# -------------------------
-# STRICT MATCH + VALIDITY + BEST OPTION LOGIC
-# -------------------------
 
 def get_strict_quotes(origin, destination, commodity, container_type, limit=4):
     df = load_prices_df()
@@ -381,7 +446,6 @@ def get_strict_quotes(origin, destination, commodity, container_type, limit=4):
         na_position="last"
     ).head(limit)
 
-    # Best option: any valid row with a numeric ocean price
     best_idx = None
     valid_rows = df_match[(df_match["_is_valid"] == True) & (df_match["_ocean_price"].notna())]
     if not valid_rows.empty:
@@ -407,21 +471,17 @@ def get_strict_quotes(origin, destination, commodity, container_type, limit=4):
             "title": f"{safe_str(row.get(pol_col))} ➜ {safe_str(row.get(pod_col))}",
             "validity_label": validity_label,
             "validity_kind": validity_kind,
-
             "ocean_col": ocean_col or "Ocean Freight",
             "ocean_val": fmt_any(row.get(ocean_col)) if ocean_col else "-",
-
             "exworks_col": exworks_col,
             "exworks_val": fmt_any(row.get(exworks_col)) if exworks_col else "-",
-
             "fields": [(col, fmt_any(row.get(col))) for col in display_cols]
         })
 
-    # ✅ FIX for Pylance: do NOT float() a pandas Scalar directly.
     best_text = None
     if best_idx is not None:
         raw_best_price = df_match.at[best_idx, "_ocean_price"]
-        best_price_num = parse_price_to_float(raw_best_price)  # returns float|None safely
+        best_price_num = parse_price_to_float(raw_best_price)
         if best_price_num is not None:
             best_text = f"Best Option available (valid rate + lowest {ft} Ocean Freight): {best_price_num:.2f}"
 
@@ -440,6 +500,8 @@ def index():
         commodities=get_commodities(),
         submitted=False,
         data=None,
+        routes=[],
+        best_route_id=None,
         rates=[],
         best_text=None,
         error_msg=None
@@ -461,6 +523,13 @@ def submit():
 
     save_to_excel(data)
 
+    # Routes suggestion
+    matched_routes, best_route_id = get_matching_routes(
+        origin=data["shipping_from"],
+        destination=data["destination"]
+    )
+
+    # Quotes
     rates, best_text, error_msg = get_strict_quotes(
         origin=data["shipping_from"],
         destination=data["destination"],
@@ -475,6 +544,8 @@ def submit():
         commodities=get_commodities(),
         submitted=True,
         data=data,
+        routes=matched_routes,
+        best_route_id=best_route_id,
         rates=rates,
         best_text=best_text,
         error_msg=error_msg

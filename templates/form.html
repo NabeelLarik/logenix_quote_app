@@ -7,7 +7,7 @@
 
     <style>
         body { background: #f5f6fa; }
-        .form-card { max-width: 1000px; margin: auto; border-radius: 12px; }
+        .form-card { max-width: 1100px; margin: auto; border-radius: 12px; }
         .card { border: none; border-radius: 12px; }
         .form-label { font-weight: 600; }
 
@@ -21,7 +21,17 @@
             box-shadow: 0 0 0 0.15rem rgba(25, 135, 84, .15);
         }
 
-        .rate-header {
+        .route-card {
+            border-radius: 12px;
+            border: 1px solid #dee2e6;
+            background: #ffffff;
+        }
+        .route-card.best {
+            border: 2px solid #0d6efd;
+            box-shadow: 0 0 0 0.15rem rgba(13, 110, 253, .15);
+        }
+
+        .rate-header, .route-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -31,6 +41,15 @@
 
         .badge-best {
             background: #198754;
+            color: white;
+            font-weight: 700;
+            border-radius: 999px;
+            padding: 6px 10px;
+            font-size: 12px;
+        }
+
+        .badge-best-route {
+            background: #0d6efd;
             color: white;
             font-weight: 700;
             border-radius: 999px;
@@ -95,23 +114,12 @@
             padding: 6px 0;
             border-bottom: 1px dashed #e9ecef;
         }
-        .kv .key {
-            font-weight: 600;
-            color: #212529;
-            flex: 1;
-        }
-        .kv .val {
-            font-weight: 400;
-            color: #212529;
-            flex: 1;
-            text-align: right;
-            word-break: break-word;
-        }
+        .kv .key { font-weight: 600; color: #212529; flex: 1; }
+        .kv .val { font-weight: 400; color: #212529; flex: 1; text-align: right; word-break: break-word; }
     </style>
 </head>
 
 <body class="p-4">
-
 <div class="container">
     <div class="card shadow p-4 form-card">
 
@@ -146,7 +154,6 @@
             </datalist>
 
             <div class="row g-3">
-
                 <div class="col-md-6">
                     <label class="form-label">Company Name / Your Name</label>
                     <input name="company_name" required class="form-control">
@@ -156,21 +163,18 @@
                     <label class="form-label">Shipping From (Origin / POL)</label>
                     <input name="shipping_from" class="form-control" list="locations" required
                            placeholder="Start typing a location...">
-                    <small class="muted">Begin typing and choose from the suggestions.</small>
                 </div>
 
                 <div class="col-md-6">
                     <label class="form-label">Destination (POD)</label>
                     <input name="destination" class="form-control" list="locations" required
                            placeholder="Start typing a location...">
-                    <small class="muted">Begin typing and choose from the suggestions.</small>
                 </div>
 
                 <div class="col-md-6">
                     <label class="form-label">Commodity</label>
                     <input name="commodity" class="form-control" list="commodities" required
                            placeholder="Select or type commodity">
-                    <small class="muted">Choose an existing commodity or type a new one.</small>
                 </div>
 
                 <div class="col-md-3">
@@ -182,9 +186,7 @@
                     <label class="form-label">Type of Container</label>
                     <input name="container_type" list="container_types" required class="form-control"
                            placeholder="Select or type">
-                    <small class="muted">Choose from the list or type your own container type.</small>
                 </div>
-
             </div>
 
             <div class="text-end mt-4">
@@ -194,7 +196,6 @@
 
         {% if submitted and data %}
         <hr class="my-4">
-
         <h5 class="fw-bold text-success">Query Submitted</h5>
         <ul class="mt-3">
             <li><strong>Quote ID:</strong> {{ data.quote_id }}</li>
@@ -206,83 +207,109 @@
             <li><strong>Container Type:</strong> {{ data.container_type }}</li>
             <li><strong>Timestamp:</strong> {{ data.timestamp }}</li>
         </ul>
-
         <p class="text-muted"><em>Saved to queries.xlsx</em></p>
         {% endif %}
 
         {% if submitted %}
-            <hr class="my-4">
-            <h5 class="fw-bold text-primary">Matching Quotes</h5>
+        <hr class="my-4">
 
-            {% if error_msg %}
-                <div class="alert alert-warning mt-3">{{ error_msg }}</div>
-            {% endif %}
+        <!-- ROUTES SECTION -->
+        <h5 class="fw-bold text-primary">Available Routes We Provide</h5>
 
-            {% if best_text %}
-                <div class="alert alert-success mt-3 mb-2">
-                    <strong>{{ best_text }}</strong>
+        {% if routes and routes|length > 0 %}
+            <div class="row row-cols-1 row-cols-md-1 g-3 mt-2">
+                {% for r in routes %}
+                <div class="col">
+                    <div class="p-3 route-card {% if r.id == best_route_id %}best{% endif %}">
+                        <div class="route-header">
+                            <div>{{ r.title }}</div>
+                            {% if r.id == best_route_id %}
+                                <span class="badge-best-route">Best Route</span>
+                            {% endif %}
+                        </div>
+                        <div class="mt-2">{{ r.path }}</div>
+                    </div>
                 </div>
-            {% endif %}
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="alert alert-warning mt-3">
+                No routes found for now.
+            </div>
+        {% endif %}
 
-            {% if rates and rates|length > 0 %}
-                <div class="row row-cols-1 row-cols-md-2 g-3 mt-2">
-                    {% for r in rates %}
-                    <div class="col">
-                        <div class="p-3 rate-card h-100 {% if r.is_best %}best{% endif %}">
+        <!-- QUOTES SECTION -->
+        <hr class="my-4">
+        <h5 class="fw-bold text-primary">Matching Quotes</h5>
 
-                            <div class="rate-header mb-2">
-                                <div>{{ r.title }}</div>
-                                <div class="d-flex gap-2 align-items-center">
-                                    {% if r.validity_kind == "valid" %}
-                                        <span class="badge-valid">{{ r.validity_label }}</span>
-                                    {% elif r.validity_kind == "expired" %}
-                                        <span class="badge-expired">{{ r.validity_label }}</span>
-                                    {% else %}
-                                        <span class="badge-unknown">{{ r.validity_label }}</span>
-                                    {% endif %}
+        {% if error_msg %}
+            <div class="alert alert-warning mt-3">{{ error_msg }}</div>
+        {% endif %}
 
-                                    {% if r.is_best %}
-                                        <span class="badge-best">Best Option</span>
-                                    {% endif %}
-                                </div>
-                            </div>
+        {% if best_text %}
+            <div class="alert alert-success mt-3 mb-2">
+                <strong>{{ best_text }}</strong>
+            </div>
+        {% endif %}
 
-                            <div class="price-box">
-                                <div class="line">
-                                    <div class="label">{{ r.ocean_col }}</div>
-                                    <div class="value">{{ r.ocean_val }}</div>
-                                </div>
+        {% if rates and rates|length > 0 %}
+            <div class="row row-cols-1 row-cols-md-2 g-3 mt-2">
+                {% for r in rates %}
+                <div class="col">
+                    <div class="p-3 rate-card h-100 {% if r.is_best %}best{% endif %}">
 
-                                {% if r.exworks_col %}
-                                <div class="line">
-                                    <div class="label">{{ r.exworks_col }}</div>
-                                    <div class="value">{{ r.exworks_val }}</div>
-                                </div>
+                        <div class="rate-header mb-2">
+                            <div>{{ r.title }}</div>
+                            <div class="d-flex gap-2 align-items-center">
+                                {% if r.validity_kind == "valid" %}
+                                    <span class="badge-valid">{{ r.validity_label }}</span>
+                                {% elif r.validity_kind == "expired" %}
+                                    <span class="badge-expired">{{ r.validity_label }}</span>
+                                {% else %}
+                                    <span class="badge-unknown">{{ r.validity_label }}</span>
+                                {% endif %}
+
+                                {% if r.is_best %}
+                                    <span class="badge-best">Best Option</span>
                                 {% endif %}
                             </div>
+                        </div>
 
-                            <div class="kv">
-                                {% for k, v in r.fields %}
-                                <div class="rowline">
-                                    <div class="key">{{ k }}</div>
-                                    <div class="val">{{ v }}</div>
-                                </div>
-                                {% endfor %}
+                        <div class="price-box">
+                            <div class="line">
+                                <div class="label">{{ r.ocean_col }}</div>
+                                <div class="value">{{ r.ocean_val }}</div>
                             </div>
 
+                            {% if r.exworks_col %}
+                            <div class="line">
+                                <div class="label">{{ r.exworks_col }}</div>
+                                <div class="value">{{ r.exworks_val }}</div>
+                            </div>
+                            {% endif %}
                         </div>
+
+                        <div class="kv">
+                            {% for k, v in r.fields %}
+                            <div class="rowline">
+                                <div class="key">{{ k }}</div>
+                                <div class="val">{{ v }}</div>
+                            </div>
+                            {% endfor %}
+                        </div>
+
                     </div>
-                    {% endfor %}
                 </div>
-            {% else %}
-                <p class="text-muted mt-2">
-                    No quotes found matching POL + POD + Commodity in <code>prices_updated.xlsx</code>.
-                </p>
-            {% endif %}
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="text-muted mt-2">
+                No quotes found matching POL + POD + Commodity in <code>prices_updated.xlsx</code>.
+            </p>
+        {% endif %}
         {% endif %}
 
     </div>
 </div>
-
 </body>
 </html>
