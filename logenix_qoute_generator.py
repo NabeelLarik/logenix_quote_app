@@ -1,6 +1,7 @@
 from flask import Flask, request, render_template
 import pandas as pd
 import os
+import re
 from datetime import datetime, date
 
 app = Flask(__name__)
@@ -28,7 +29,7 @@ ROUTES = [
         "title": "Route 2",
         "path": "Karachi Port → Peshawar → Torkham Border (Afghanistan/Pakistan) → Kabul → Shir Khan Border (Tajikistan/Afghanistan) → Dushanbe (Tajikistan).",
         "origin_keywords": ["karachi port", "karachi"],
-        "destination_city_keywords": ["dushanbe", "dushambe"],  # handle spelling variant
+        "destination_city_keywords": ["dushanbe", "dushambe"],
         "destination_country_keywords": ["tajikistan"],
     },
     {
@@ -42,20 +43,108 @@ ROUTES = [
 ]
 
 
+# -------------------------
+# BASIC UTILS
+# -------------------------
+
 def norm_text(x) -> str:
     if x is None or pd.isna(x):
         return ""
     return str(x).strip().lower()
 
 
+def canon(s: str) -> str:
+    """Canonicalize text for robust matching (handles NBSP, dash variants, extra spaces)."""
+    if s is None:
+        return ""
+    s = str(s)
+    s = s.replace("\u00A0", " ")  # NBSP
+    s = s.replace("–", "-").replace("—", "-")
+    s = s.strip().lower()
+    s = re.sub(r"\s+", " ", s)
+    return s
+
+
+def safe_str(x) -> str:
+    if x is None or pd.isna(x):
+        return "-"
+    s = str(x).strip()
+    return s if s else "-"
+
+
+def fmt_any(x):
+    if x is None or pd.isna(x):
+        return "-"
+    if isinstance(x, (datetime, pd.Timestamp)):
+        return x.strftime("%d-%b-%Y")
+    s = str(x).strip()
+    return s if s else "-"
+
+
+def fmt_money(v):
+    if v is None:
+        return "-"
+    try:
+        return f"${float(v):,.2f}"
+    except Exception:
+        return "-"
+
+
+def parse_date_any(v):
+    if v is None or pd.isna(v):
+        return None
+    if isinstance(v, (datetime, pd.Timestamp)):
+        return v.date()
+    s = str(v).strip()
+    if not s:
+        return None
+    dt = pd.to_datetime(s, errors="coerce", dayfirst=True)
+    if pd.isna(dt):
+        return None
+    return dt.date()
+
+
+def parse_price_to_float(v):
+    """
+    MUCH STRONGER parsing:
+    - Handles numeric cells
+    - Handles '$850.00', 'USD 850', '850 (approx)', '850.00 PKR', etc.
+    - Extracts first numeric pattern using regex.
+    """
+    if v is None or pd.isna(v):
+        return None
+
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        try:
+            return float(v)
+        except Exception:
+            return None
+
+    s = str(v).strip()
+    if not s or s == "-":
+        return None
+
+    s = s.replace("\u00A0", " ")  # NBSP
+    s = s.replace(",", "")
+    s = s.replace("$", "")
+    s = s.strip()
+
+    # Extract first number including decimals
+    m = re.search(r"(-?\d+(\.\d+)?)", s)
+    if not m:
+        return None
+
+    try:
+        return float(m.group(1))
+    except Exception:
+        return None
+
+
+# -------------------------
+# ROUTE MATCHING
+# -------------------------
+
 def route_match_score(origin: str, destination: str, route: dict) -> int:
-    """
-    Scoring:
-      - origin must match (otherwise score = 0)
-      - destination city match => +3
-      - destination country match => +1
-    Best route = highest score.
-    """
     o = norm_text(origin)
     d = norm_text(destination)
 
@@ -63,26 +152,18 @@ def route_match_score(origin: str, destination: str, route: dict) -> int:
     if not origin_ok:
         return 0
 
-    score = 1  # baseline if origin matched (means we provide from that origin)
+    score = 1
     if any(k in d for k in route.get("destination_city_keywords", [])):
         score += 3
     if any(k in d for k in route.get("destination_country_keywords", [])):
         score += 1
 
-    # If destination didn't match at all, treat as not a route match
-    # (so we don't show routes just because origin matches)
     if score == 1:
         return 0
-
     return score
 
 
 def get_matching_routes(origin: str, destination: str):
-    """
-    Returns:
-      matched_routes: list of route dicts (with score)
-      best_route_id: str|None
-    """
     scored = []
     for r in ROUTES:
         s = route_match_score(origin, destination, r)
@@ -95,12 +176,11 @@ def get_matching_routes(origin: str, destination: str):
         return [], None
 
     scored.sort(key=lambda x: x["score"], reverse=True)
-    best_route_id = scored[0]["id"]
-    return scored, best_route_id
+    return scored, scored[0]["id"]
 
 
 # -------------------------
-# DROPDOWN / AUTOCOMPLETE LISTS
+# DROPDOWNS
 # -------------------------
 
 COUNTRIES = [
@@ -233,65 +313,12 @@ BASE_COMMODITIES = [
 
 
 # -------------------------
-# EXCEL HELPERS (PRICES)
+# EXCEL LOADING (PRICES)
 # -------------------------
-
-def safe_str(x) -> str:
-    if x is None or pd.isna(x):
-        return "-"
-    s = str(x).strip()
-    return s if s else "-"
-
-
-def fmt_any(x):
-    if x is None or pd.isna(x):
-        return "-"
-    if isinstance(x, (datetime, pd.Timestamp)):
-        return x.strftime("%d-%b-%Y")
-    s = str(x).strip()
-    return s if s else "-"
-
-
-def parse_date_any(v):
-    if v is None or pd.isna(v):
-        return None
-    if isinstance(v, (datetime, pd.Timestamp)):
-        return v.date()
-    s = str(v).strip()
-    if not s:
-        return None
-    dt = pd.to_datetime(s, errors="coerce", dayfirst=True)
-    if pd.isna(dt):
-        return None
-    return dt.date()
-
-
-def parse_price_to_float(v):
-    if v is None or pd.isna(v):
-        return None
-    s = str(v).strip()
-    if not s:
-        return None
-    s = s.replace(",", "").replace("$", "").strip()
-    try:
-        return float(s)
-    except Exception:
-        return None
-
-
-def decide_ft_from_container(container_type: str):
-    ct = norm_text(container_type)
-    if "20" in ct:
-        return "20ft"
-    if "40" in ct:
-        return "40ft"
-    return "40ft"
-
 
 def flatten_multiindex_columns(df: pd.DataFrame) -> pd.DataFrame:
     if not isinstance(df.columns, pd.MultiIndex):
         return df
-
     new_cols = []
     for a, b in df.columns:
         a = "" if (a is None or str(a).startswith("Unnamed")) else str(a).strip()
@@ -317,7 +344,7 @@ def load_prices_df():
     if not os.path.exists(PRICES_FILE):
         return None
 
-    # Prefer single header for updated sheet
+    # Prefer single-header
     try:
         df = pd.read_excel(PRICES_FILE)
         if df is not None and not df.empty:
@@ -326,7 +353,7 @@ def load_prices_df():
     except Exception:
         pass
 
-    # Fallback for older formats
+    # Fallback multiheader
     try:
         df = pd.read_excel(PRICES_FILE, header=[0, 1])
         df = flatten_multiindex_columns(df)
@@ -338,9 +365,9 @@ def load_prices_df():
 
 
 def find_col(df: pd.DataFrame, needle: str):
-    n = needle.strip().lower()
+    n = canon(needle)
     for c in df.columns:
-        if n in str(c).lower():
+        if n in canon(c):
             return c
     return None
 
@@ -350,13 +377,15 @@ def pick_ocean_freight_column(df: pd.DataFrame, ft: str):
         f"Ocean Freight ({ft})",
         f"Ocean Freight {ft}",
         f"Ocean Freight/{ft}",
+        f"Ocean Freight - {ft}",
         f"Ocean Freight {ft.replace('ft','')}",
+        f"Ocean Freight ({ft.replace('ft','')})",
     ]
     for cand in candidates:
         c = find_col(df, cand)
         if c:
             return c
-    return find_col(df, "Ocean Freight")
+    return None
 
 
 def pick_exworks_column(df: pd.DataFrame, ft: str):
@@ -365,8 +394,8 @@ def pick_exworks_column(df: pd.DataFrame, ft: str):
         f"Ex works ({ft})",
         f"Ex-works {ft}",
         f"Ex works {ft}",
-        "Ex-works",
-        "Ex works"
+        f"Exworks ({ft})",
+        f"Exworks {ft}",
     ]
     for cand in candidates:
         c = find_col(df, cand)
@@ -374,6 +403,41 @@ def pick_exworks_column(df: pd.DataFrame, ft: str):
             return c
     return None
 
+
+def pick_switch_bl_column(df: pd.DataFrame):
+    candidates = [
+        "Switch BL",
+        "Switch B/L",
+        "Switch BL Cost",
+        "Switch B/L Cost",
+        "Switch Bill",
+        "Switch Bill Cost",
+    ]
+    for cand in candidates:
+        c = find_col(df, cand)
+        if c:
+            return c
+
+    # fallback heuristic
+    for c in df.columns:
+        cc = canon(c)
+        if "switch" in cc and ("bl" in cc or "b/l" in cc):
+            return c
+    return None
+
+
+def decide_ft_from_container(container_type: str):
+    ct = norm_text(container_type)
+    if "20" in ct:
+        return "20ft"
+    if "40" in ct:
+        return "40ft"
+    return "40ft"
+
+
+# -------------------------
+# COMMODITIES PERSIST
+# -------------------------
 
 def get_commodities():
     commodities = list(BASE_COMMODITIES)
@@ -399,6 +463,10 @@ def save_to_excel(record):
         df_final = df_new
     df_final.to_excel(EXCEL_FILE, index=False)
 
+
+# -------------------------
+# QUOTES + TOTALS LOGIC
+# -------------------------
 
 def get_strict_quotes(origin, destination, commodity, container_type, limit=4):
     df = load_prices_df()
@@ -430,15 +498,21 @@ def get_strict_quotes(origin, destination, commodity, container_type, limit=4):
     df_match["_validity_date"] = df_match[validity_col].apply(parse_date_any)
     df_match["_is_valid"] = df_match["_validity_date"].apply(lambda d: (d is not None and d >= today))
 
-    ft = decide_ft_from_container(container_type)
-    ocean_col = pick_ocean_freight_column(df_match, ft)
-    exworks_col = pick_exworks_column(df_match, ft)
+    ocean_20_col = pick_ocean_freight_column(df_match, "20ft")
+    ocean_40_col = pick_ocean_freight_column(df_match, "40ft")
+    ex_20_col = pick_exworks_column(df_match, "20ft")
+    ex_40_col = pick_exworks_column(df_match, "40ft")
+    switch_col = pick_switch_bl_column(df_match)
 
-    if ocean_col and ocean_col in df_match.columns:
-        df_match["_ocean_price"] = df_match[ocean_col].apply(parse_price_to_float)
+    # Best option based on user's size preference
+    ft_best = decide_ft_from_container(container_type)
+    ocean_best_col = ocean_40_col if ft_best == "40ft" else ocean_20_col
+    if ocean_best_col and ocean_best_col in df_match.columns:
+        df_match["_ocean_price"] = df_match[ocean_best_col].apply(parse_price_to_float)
     else:
         df_match["_ocean_price"] = None
 
+    # Sort: valid first, then latest validity
     df_match["_valid_sort"] = df_match["_is_valid"].apply(lambda x: 1 if x else 0)
     df_match = df_match.sort_values(
         by=["_valid_sort", "_validity_date"],
@@ -466,24 +540,53 @@ def get_strict_quotes(origin, destination, commodity, container_type, limit=4):
             validity_label = f"Validity: Expired (until {vd.strftime('%d/%m/%Y')})"
             validity_kind = "expired"
 
+        # numeric values
+        switch_val = parse_price_to_float(row.get(switch_col)) if switch_col else None
+        ex20 = parse_price_to_float(row.get(ex_20_col)) if ex_20_col else None
+        ex40 = parse_price_to_float(row.get(ex_40_col)) if ex_40_col else None
+        oc20 = parse_price_to_float(row.get(ocean_20_col)) if ocean_20_col else None
+        oc40 = parse_price_to_float(row.get(ocean_40_col)) if ocean_40_col else None
+
+        # Totals calculated by code (NOT from Excel)
+        totals = []
+        if switch_val is not None and ex20 is not None:
+            totals.append(("Total Price: Switch BL + Ex-Works (20ft)", fmt_money(switch_val + ex20)))
+        if switch_val is not None and ex40 is not None:
+            totals.append(("Total Price: Switch BL + Ex-Works (40ft)", fmt_money(switch_val + ex40)))
+        if switch_val is not None and oc20 is not None:
+            totals.append(("Total Price: Switch BL + Ocean Freight (20ft)", fmt_money(switch_val + oc20)))
+        if switch_val is not None and oc40 is not None:
+            totals.append(("Total Price: Switch BL + Ocean Freight (40ft)", fmt_money(switch_val + oc40)))
+
+        # show raw prices (optional)
+        price_lines = []
+        if switch_val is not None:
+            price_lines.append(("Switch BL", fmt_money(switch_val)))
+        if ex20 is not None:
+            price_lines.append(("Ex-Works (20ft)", fmt_money(ex20)))
+        if ex40 is not None:
+            price_lines.append(("Ex-Works (40ft)", fmt_money(ex40)))
+        if oc20 is not None:
+            price_lines.append(("Ocean Freight (20ft)", fmt_money(oc20)))
+        if oc40 is not None:
+            price_lines.append(("Ocean Freight (40ft)", fmt_money(oc40)))
+
         results.append({
             "is_best": (best_idx is not None and idx == best_idx),
             "title": f"{safe_str(row.get(pol_col))} ➜ {safe_str(row.get(pod_col))}",
             "validity_label": validity_label,
             "validity_kind": validity_kind,
-            "ocean_col": ocean_col or "Ocean Freight",
-            "ocean_val": fmt_any(row.get(ocean_col)) if ocean_col else "-",
-            "exworks_col": exworks_col,
-            "exworks_val": fmt_any(row.get(exworks_col)) if exworks_col else "-",
+            "price_lines": price_lines,
+            "totals": totals,
             "fields": [(col, fmt_any(row.get(col))) for col in display_cols]
         })
 
     best_text = None
     if best_idx is not None:
-        raw_best_price = df_match.at[best_idx, "_ocean_price"]
-        best_price_num = parse_price_to_float(raw_best_price)
+        best_price_num = df_match.at[best_idx, "_ocean_price"]
+        best_price_num = parse_price_to_float(best_price_num)
         if best_price_num is not None:
-            best_text = f"Best Option available (valid rate + lowest {ft} Ocean Freight): {best_price_num:.2f}"
+            best_text = f"Best Option available (valid rate + lowest {ft_best} Ocean Freight): {fmt_money(best_price_num)}"
 
     return results, best_text, None
 
@@ -523,13 +626,11 @@ def submit():
 
     save_to_excel(data)
 
-    # Routes suggestion
     matched_routes, best_route_id = get_matching_routes(
         origin=data["shipping_from"],
         destination=data["destination"]
     )
 
-    # Quotes
     rates, best_text, error_msg = get_strict_quotes(
         origin=data["shipping_from"],
         destination=data["destination"],

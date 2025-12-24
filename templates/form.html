@@ -84,8 +84,6 @@
             font-size: 12px;
         }
 
-        .muted { color: #6c757d; font-size: 13px; }
-
         .price-box {
             background: #f8f9fa;
             border: 1px solid #e9ecef;
@@ -93,14 +91,25 @@
             padding: 10px;
             margin-top: 10px;
         }
-        .price-box .line {
+        .price-box .line,
+        .totals-box .line {
             display: flex;
             justify-content: space-between;
             gap: 12px;
             padding: 4px 0;
         }
-        .price-box .label { font-weight: 600; }
-        .price-box .value { font-weight: 400; }
+        .price-box .label,
+        .totals-box .label { font-weight: 600; }
+        .price-box .value,
+        .totals-box .value { font-weight: 400; }
+
+        .totals-box {
+            background: #ffffff;
+            border: 1px solid #e9ecef;
+            border-radius: 10px;
+            padding: 10px;
+            margin-top: 10px;
+        }
 
         .kv {
             margin-top: 12px;
@@ -156,36 +165,41 @@
             <div class="row g-3">
                 <div class="col-md-6">
                     <label class="form-label">Company Name / Your Name</label>
-                    <input name="company_name" required class="form-control">
+                    <input name="company_name" required class="form-control" value="{{ data.company_name if data else '' }}">
                 </div>
 
                 <div class="col-md-6">
                     <label class="form-label">Shipping From (Origin / POL)</label>
                     <input name="shipping_from" class="form-control" list="locations" required
-                           placeholder="Start typing a location...">
+                           placeholder="Start typing a location..."
+                           value="{{ data.shipping_from if data else '' }}">
                 </div>
 
                 <div class="col-md-6">
                     <label class="form-label">Destination (POD)</label>
                     <input name="destination" class="form-control" list="locations" required
-                           placeholder="Start typing a location...">
+                           placeholder="Start typing a location..."
+                           value="{{ data.destination if data else '' }}">
                 </div>
 
                 <div class="col-md-6">
                     <label class="form-label">Commodity</label>
                     <input name="commodity" class="form-control" list="commodities" required
-                           placeholder="Select or type commodity">
+                           placeholder="Select or type commodity"
+                           value="{{ data.commodity if data else '' }}">
                 </div>
 
                 <div class="col-md-3">
                     <label class="form-label">Weight (tons)</label>
-                    <input type="number" step="0.01" name="weight_tons" required class="form-control">
+                    <input type="number" step="0.01" name="weight_tons" required class="form-control"
+                           value="{{ data.weight_tons if data else '' }}">
                 </div>
 
                 <div class="col-md-3">
                     <label class="form-label">Type of Container</label>
                     <input name="container_type" list="container_types" required class="form-control"
-                           placeholder="Select or type">
+                           placeholder="Select or type"
+                           value="{{ data.container_type if data else '' }}">
                 </div>
             </div>
 
@@ -213,7 +227,6 @@
         {% if submitted %}
         <hr class="my-4">
 
-        <!-- ROUTES SECTION -->
         <h5 class="fw-bold text-primary">Available Routes We Provide</h5>
 
         {% if routes and routes|length > 0 %}
@@ -238,7 +251,6 @@
             </div>
         {% endif %}
 
-        <!-- QUOTES SECTION -->
         <hr class="my-4">
         <h5 class="fw-bold text-primary">Matching Quotes</h5>
 
@@ -275,19 +287,27 @@
                             </div>
                         </div>
 
+                        {% if r.price_lines and r.price_lines|length > 0 %}
                         <div class="price-box">
+                            {% for label, value in r.price_lines %}
                             <div class="line">
-                                <div class="label">{{ r.ocean_col }}</div>
-                                <div class="value">{{ r.ocean_val }}</div>
+                                <div class="label">{{ label }}</div>
+                                <div class="value">{{ value }}</div>
                             </div>
-
-                            {% if r.exworks_col %}
-                            <div class="line">
-                                <div class="label">{{ r.exworks_col }}</div>
-                                <div class="value">{{ r.exworks_val }}</div>
-                            </div>
-                            {% endif %}
+                            {% endfor %}
                         </div>
+                        {% endif %}
+
+                        {% if r.totals and r.totals|length > 0 %}
+                        <div class="totals-box">
+                            {% for label, value in r.totals %}
+                            <div class="line">
+                                <div class="label">{{ label }}</div>
+                                <div class="value">{{ value }}</div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
 
                         <div class="kv">
                             {% for k, v in r.fields %}
