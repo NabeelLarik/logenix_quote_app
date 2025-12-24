@@ -165,41 +165,36 @@
             <div class="row g-3">
                 <div class="col-md-6">
                     <label class="form-label">Company Name / Your Name</label>
-                    <input name="company_name" required class="form-control" value="{{ data.company_name if data else '' }}">
+                    <input name="company_name" required class="form-control">
                 </div>
 
                 <div class="col-md-6">
                     <label class="form-label">Shipping From (Origin / POL)</label>
                     <input name="shipping_from" class="form-control" list="locations" required
-                           placeholder="Start typing a location..."
-                           value="{{ data.shipping_from if data else '' }}">
+                           placeholder="Start typing a location...">
                 </div>
 
                 <div class="col-md-6">
                     <label class="form-label">Destination (POD)</label>
                     <input name="destination" class="form-control" list="locations" required
-                           placeholder="Start typing a location..."
-                           value="{{ data.destination if data else '' }}">
+                           placeholder="Start typing a location...">
                 </div>
 
                 <div class="col-md-6">
                     <label class="form-label">Commodity</label>
                     <input name="commodity" class="form-control" list="commodities" required
-                           placeholder="Select or type commodity"
-                           value="{{ data.commodity if data else '' }}">
+                           placeholder="Select or type commodity">
                 </div>
 
                 <div class="col-md-3">
                     <label class="form-label">Weight (tons)</label>
-                    <input type="number" step="0.01" name="weight_tons" required class="form-control"
-                           value="{{ data.weight_tons if data else '' }}">
+                    <input type="number" step="0.01" name="weight_tons" required class="form-control">
                 </div>
 
                 <div class="col-md-3">
                     <label class="form-label">Type of Container</label>
                     <input name="container_type" list="container_types" required class="form-control"
-                           placeholder="Select or type"
-                           value="{{ data.container_type if data else '' }}">
+                           placeholder="Select or type">
                 </div>
             </div>
 

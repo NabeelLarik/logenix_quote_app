@@ -54,11 +54,10 @@ def norm_text(x) -> str:
 
 
 def canon(s: str) -> str:
-    """Canonicalize text for robust matching (handles NBSP, dash variants, extra spaces)."""
     if s is None:
         return ""
     s = str(s)
-    s = s.replace("\u00A0", " ")  # NBSP
+    s = s.replace("\u00A0", " ")
     s = s.replace("–", "-").replace("—", "-")
     s = s.strip().lower()
     s = re.sub(r"\s+", " ", s)
@@ -105,12 +104,6 @@ def parse_date_any(v):
 
 
 def parse_price_to_float(v):
-    """
-    MUCH STRONGER parsing:
-    - Handles numeric cells
-    - Handles '$850.00', 'USD 850', '850 (approx)', '850.00 PKR', etc.
-    - Extracts first numeric pattern using regex.
-    """
     if v is None or pd.isna(v):
         return None
 
@@ -124,12 +117,10 @@ def parse_price_to_float(v):
     if not s or s == "-":
         return None
 
-    s = s.replace("\u00A0", " ")  # NBSP
+    s = s.replace("\u00A0", " ")
     s = s.replace(",", "")
-    s = s.replace("$", "")
-    s = s.strip()
+    s = s.replace("$", "").strip()
 
-    # Extract first number including decimals
     m = re.search(r"(-?\d+(\.\d+)?)", s)
     if not m:
         return None
@@ -313,7 +304,7 @@ BASE_COMMODITIES = [
 
 
 # -------------------------
-# EXCEL LOADING (PRICES)
+# PRICES EXCEL HELPERS
 # -------------------------
 
 def flatten_multiindex_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -344,7 +335,6 @@ def load_prices_df():
     if not os.path.exists(PRICES_FILE):
         return None
 
-    # Prefer single-header
     try:
         df = pd.read_excel(PRICES_FILE)
         if df is not None and not df.empty:
@@ -353,7 +343,6 @@ def load_prices_df():
     except Exception:
         pass
 
-    # Fallback multiheader
     try:
         df = pd.read_excel(PRICES_FILE, header=[0, 1])
         df = flatten_multiindex_columns(df)
@@ -418,7 +407,6 @@ def pick_switch_bl_column(df: pd.DataFrame):
         if c:
             return c
 
-    # fallback heuristic
     for c in df.columns:
         cc = canon(c)
         if "switch" in cc and ("bl" in cc or "b/l" in cc):
@@ -436,7 +424,7 @@ def decide_ft_from_container(container_type: str):
 
 
 # -------------------------
-# COMMODITIES PERSIST
+# COMMODITIES PERSISTENCE
 # -------------------------
 
 def get_commodities():
@@ -465,7 +453,7 @@ def save_to_excel(record):
 
 
 # -------------------------
-# QUOTES + TOTALS LOGIC
+# QUOTES + TOTALS
 # -------------------------
 
 def get_strict_quotes(origin, destination, commodity, container_type, limit=4):
@@ -547,17 +535,6 @@ def get_strict_quotes(origin, destination, commodity, container_type, limit=4):
         oc20 = parse_price_to_float(row.get(ocean_20_col)) if ocean_20_col else None
         oc40 = parse_price_to_float(row.get(ocean_40_col)) if ocean_40_col else None
 
-        # Totals calculated by code (NOT from Excel)
-        totals = []
-        if switch_val is not None and ex20 is not None:
-            totals.append(("Total Price: Switch BL + Ex-Works (20ft)", fmt_money(switch_val + ex20)))
-        if switch_val is not None and ex40 is not None:
-            totals.append(("Total Price: Switch BL + Ex-Works (40ft)", fmt_money(switch_val + ex40)))
-        if switch_val is not None and oc20 is not None:
-            totals.append(("Total Price: Switch BL + Ocean Freight (20ft)", fmt_money(switch_val + oc20)))
-        if switch_val is not None and oc40 is not None:
-            totals.append(("Total Price: Switch BL + Ocean Freight (40ft)", fmt_money(switch_val + oc40)))
-
         # show raw prices (optional)
         price_lines = []
         if switch_val is not None:
@@ -570,6 +547,17 @@ def get_strict_quotes(origin, destination, commodity, container_type, limit=4):
             price_lines.append(("Ocean Freight (20ft)", fmt_money(oc20)))
         if oc40 is not None:
             price_lines.append(("Ocean Freight (40ft)", fmt_money(oc40)))
+
+        # totals (calculated by code)
+        totals = []
+        if switch_val is not None and ex20 is not None:
+            totals.append(("Total Price: Switch BL + Ex-Works (20ft)", fmt_money(switch_val + ex20)))
+        if switch_val is not None and ex40 is not None:
+            totals.append(("Total Price: Switch BL + Ex-Works (40ft)", fmt_money(switch_val + ex40)))
+        if switch_val is not None and oc20 is not None:
+            totals.append(("Total Price: Switch BL + Ocean Freight (20ft)", fmt_money(switch_val + oc20)))
+        if switch_val is not None and oc40 is not None:
+            totals.append(("Total Price: Switch BL + Ocean Freight (40ft)", fmt_money(switch_val + oc40)))
 
         results.append({
             "is_best": (best_idx is not None and idx == best_idx),
@@ -639,6 +627,7 @@ def submit():
         limit=SHOW_LIMIT
     )
 
+    # IMPORTANT: render form EMPTY after submit (data is only for showing summary)
     return render_template(
         "form.html",
         countries=COUNTRIES,
