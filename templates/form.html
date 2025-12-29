@@ -125,6 +125,7 @@
         }
         .kv .key { font-weight: 600; color: #212529; flex: 1; }
         .kv .val { font-weight: 400; color: #212529; flex: 1; text-align: right; word-break: break-word; }
+        .na { color: #dc3545; font-weight: 700; } /* red N/A */
     </style>
 </head>
 
@@ -305,10 +306,16 @@
                         {% endif %}
 
                         <div class="kv">
-                            {% for k, v in r.fields %}
+                            {% for f in r.fields %}
                             <div class="rowline">
-                                <div class="key">{{ k }}</div>
-                                <div class="val">{{ v }}</div>
+                                <div class="key">{{ f.key }}</div>
+                                <div class="val">
+                                    {% if f.is_na %}
+                                        <span class="na">N/A</span>
+                                    {% else %}
+                                        {{ f.val }}
+                                    {% endif %}
+                                </div>
                             </div>
                             {% endfor %}
                         </div>

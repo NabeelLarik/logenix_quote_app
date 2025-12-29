@@ -8,7 +8,7 @@ app = Flask(__name__)
 
 EXCEL_FILE = "queries.xlsx"
 PRICES_FILE = "prices_updated.xlsx"
-SHOW_LIMIT = 4  # show max 4 quote boxes
+SHOW_LIMIT = 4  # max 4 quote boxes
 
 
 # -------------------------
@@ -56,8 +56,7 @@ def norm_text(x) -> str:
 def canon(s: str) -> str:
     if s is None:
         return ""
-    s = str(s)
-    s = s.replace("\u00A0", " ")
+    s = str(s).replace("\u00A0", " ")
     s = s.replace("–", "-").replace("—", "-")
     s = s.strip().lower()
     s = re.sub(r"\s+", " ", s)
@@ -66,27 +65,32 @@ def canon(s: str) -> str:
 
 def safe_str(x) -> str:
     if x is None or pd.isna(x):
-        return "-"
-    s = str(x).strip()
-    return s if s else "-"
+        return ""
+    return str(x).strip()
 
 
-def fmt_any(x):
+def fmt_date_like(x):
     if x is None or pd.isna(x):
-        return "-"
+        return None
     if isinstance(x, (datetime, pd.Timestamp)):
         return x.strftime("%d-%b-%Y")
+    # try parse date-like strings
     s = str(x).strip()
-    return s if s else "-"
+    if not s:
+        return None
+    dt = pd.to_datetime(s, errors="coerce", dayfirst=True)
+    if pd.isna(dt):
+        return None
+    return dt.strftime("%d-%b-%Y")
 
 
 def fmt_money(v):
     if v is None:
-        return "-"
+        return None
     try:
         return f"${float(v):,.2f}"
     except Exception:
-        return "-"
+        return None
 
 
 def parse_date_any(v):
@@ -104,6 +108,12 @@ def parse_date_any(v):
 
 
 def parse_price_to_float(v):
+    """
+    Strong numeric parser:
+      - numeric cells
+      - '$850.00', 'USD 850', '850 (approx)', etc
+      - extracts FIRST numeric pattern
+    """
     if v is None or pd.isna(v):
         return None
 
@@ -114,13 +124,10 @@ def parse_price_to_float(v):
             return None
 
     s = str(v).strip()
-    if not s or s == "-":
+    if not s:
         return None
 
-    s = s.replace("\u00A0", " ")
-    s = s.replace(",", "")
-    s = s.replace("$", "").strip()
-
+    s = s.replace("\u00A0", " ").replace(",", "").replace("$", "").strip()
     m = re.search(r"(-?\d+(\.\d+)?)", s)
     if not m:
         return None
@@ -304,7 +311,7 @@ BASE_COMMODITIES = [
 
 
 # -------------------------
-# PRICES EXCEL HELPERS
+# PRICES FILE LOADING
 # -------------------------
 
 def flatten_multiindex_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -338,8 +345,7 @@ def load_prices_df():
     try:
         df = pd.read_excel(PRICES_FILE)
         if df is not None and not df.empty:
-            if "POL" in df.columns and "POD" in df.columns and "Commodity" in df.columns:
-                return df
+            return df
     except Exception:
         pass
 
@@ -424,7 +430,7 @@ def decide_ft_from_container(container_type: str):
 
 
 # -------------------------
-# COMMODITIES PERSISTENCE
+# COMMODITIES (BASE + FROM queries.xlsx)
 # -------------------------
 
 def get_commodities():
@@ -453,7 +459,57 @@ def save_to_excel(record):
 
 
 # -------------------------
-# QUOTES + TOTALS
+# COST COLUMN DETECTION (for Grand Total)
+# -------------------------
+
+COST_KEYWORDS = [
+    "charge", "charges",
+    "price", "purchase",
+    "freight",
+    "ex-works", "ex works", "exworks",
+    "switch bl", "switch b/l",
+    "insurance", "guarantee",
+    "custom", "clearance",
+    "scanning", "examination",
+    "tax", "cess",
+    "wharfage", "storage",
+    "profit",
+    "bonded",
+    "manifestation",
+    "soc",
+    "nlc",
+    "overweight",
+    "truck", "trucking", "halting",
+    "miscellaneous",
+    "other_origin",
+]
+
+EXCLUDE_COST_EXACT = {
+    "weight",  # NOT a cost
+}
+# anything containing 'weight' but NOT 'overweight' should be excluded
+def is_weight_non_cost(col_name: str) -> bool:
+    c = canon(col_name)
+    if c in EXCLUDE_COST_EXACT:
+        return True
+    if "weight" in c and "overweight" not in c:
+        return True
+    return False
+
+
+def is_cost_column(col_name: str) -> bool:
+    c = canon(col_name)
+    if is_weight_non_cost(col_name):
+        return False
+    # also avoid common non-cost ids/dates
+    if any(k in c for k in ["date", "validity", "customer", "vendor", "carrier", "pol", "pod", "commodity", "inquiry", "s.no", "sno", "serial", "route"]):
+        # carrier is not a cost, keep it excluded from total
+        return False
+    return any(k in c for k in COST_KEYWORDS)
+
+
+# -------------------------
+# QUOTE SEARCH + DISPLAY PACKING
 # -------------------------
 
 def get_strict_quotes(origin, destination, commodity, container_type, limit=4):
@@ -492,7 +548,7 @@ def get_strict_quotes(origin, destination, commodity, container_type, limit=4):
     ex_40_col = pick_exworks_column(df_match, "40ft")
     switch_col = pick_switch_bl_column(df_match)
 
-    # Best option based on user's size preference
+    # best based on selected container size (20/40)
     ft_best = decide_ft_from_container(container_type)
     ocean_best_col = ocean_40_col if ft_best == "40ft" else ocean_20_col
     if ocean_best_col and ocean_best_col in df_match.columns:
@@ -500,7 +556,7 @@ def get_strict_quotes(origin, destination, commodity, container_type, limit=4):
     else:
         df_match["_ocean_price"] = None
 
-    # Sort: valid first, then latest validity
+    # sort valid first, then latest validity
     df_match["_valid_sort"] = df_match["_is_valid"].apply(lambda x: 1 if x else 0)
     df_match = df_match.sort_values(
         by=["_valid_sort", "_validity_date"],
@@ -508,6 +564,7 @@ def get_strict_quotes(origin, destination, commodity, container_type, limit=4):
         na_position="last"
     ).head(limit)
 
+    # best row among VALID with numeric ocean price
     best_idx = None
     valid_rows = df_match[(df_match["_is_valid"] == True) & (df_match["_ocean_price"].notna())]
     if not valid_rows.empty:
@@ -528,14 +585,13 @@ def get_strict_quotes(origin, destination, commodity, container_type, limit=4):
             validity_label = f"Validity: Expired (until {vd.strftime('%d/%m/%Y')})"
             validity_kind = "expired"
 
-        # numeric values
+        # show raw core prices (only if parseable)
         switch_val = parse_price_to_float(row.get(switch_col)) if switch_col else None
         ex20 = parse_price_to_float(row.get(ex_20_col)) if ex_20_col else None
         ex40 = parse_price_to_float(row.get(ex_40_col)) if ex_40_col else None
         oc20 = parse_price_to_float(row.get(ocean_20_col)) if ocean_20_col else None
         oc40 = parse_price_to_float(row.get(ocean_40_col)) if ocean_40_col else None
 
-        # show raw prices (optional)
         price_lines = []
         if switch_val is not None:
             price_lines.append(("Switch BL", fmt_money(switch_val)))
@@ -548,7 +604,7 @@ def get_strict_quotes(origin, destination, commodity, container_type, limit=4):
         if oc40 is not None:
             price_lines.append(("Ocean Freight (40ft)", fmt_money(oc40)))
 
-        # totals (calculated by code)
+        # requested totals for switch+container prices
         totals = []
         if switch_val is not None and ex20 is not None:
             totals.append(("Total Price: Switch BL + Ex-Works (20ft)", fmt_money(switch_val + ex20)))
@@ -559,6 +615,55 @@ def get_strict_quotes(origin, destination, commodity, container_type, limit=4):
         if switch_val is not None and oc40 is not None:
             totals.append(("Total Price: Switch BL + Ocean Freight (40ft)", fmt_money(switch_val + oc40)))
 
+        # GRAND TOTAL: sum all cost-like columns available in this row
+        grand_total = 0.0
+        grand_has_any = False
+        grand_components = []
+        for col in display_cols:
+            if not is_cost_column(col):
+                continue
+            val = parse_price_to_float(row.get(col))
+            if val is None:
+                continue
+            grand_has_any = True
+            grand_total += val
+            # show component too
+            grand_components.append((str(col), fmt_money(val)))
+
+        if grand_has_any:
+            totals.append(("Grand Total (all prices found)", fmt_money(grand_total)))
+
+        # ALL FIELDS, with N/A red if empty
+        fields = []
+        for col in display_cols:
+            raw = row.get(col)
+
+            # empty?
+            if raw is None or pd.isna(raw) or str(raw).strip() == "":
+                fields.append({"key": str(col), "val": None, "is_na": True})
+                continue
+
+            # nice formatting for dates
+            if "date" in canon(col) or "validity" in canon(col):
+                d = fmt_date_like(raw)
+                if d is None:
+                    fields.append({"key": str(col), "val": None, "is_na": True})
+                else:
+                    fields.append({"key": str(col), "val": d, "is_na": False})
+                continue
+
+            # show money formatting for cost columns when parseable
+            if is_cost_column(col):
+                num = parse_price_to_float(raw)
+                if num is not None:
+                    fields.append({"key": str(col), "val": fmt_money(num), "is_na": False})
+                else:
+                    fields.append({"key": str(col), "val": safe_str(raw), "is_na": False})
+                continue
+
+            # default string
+            fields.append({"key": str(col), "val": safe_str(raw), "is_na": False})
+
         results.append({
             "is_best": (best_idx is not None and idx == best_idx),
             "title": f"{safe_str(row.get(pol_col))} ➜ {safe_str(row.get(pod_col))}",
@@ -566,7 +671,7 @@ def get_strict_quotes(origin, destination, commodity, container_type, limit=4):
             "validity_kind": validity_kind,
             "price_lines": price_lines,
             "totals": totals,
-            "fields": [(col, fmt_any(row.get(col))) for col in display_cols]
+            "fields": fields,
         })
 
     best_text = None
@@ -580,7 +685,7 @@ def get_strict_quotes(origin, destination, commodity, container_type, limit=4):
 
 
 # -------------------------
-# ROUTES
+# APP ROUTES
 # -------------------------
 
 @app.route("/", methods=["GET"])
@@ -627,7 +732,7 @@ def submit():
         limit=SHOW_LIMIT
     )
 
-    # IMPORTANT: render form EMPTY after submit (data is only for showing summary)
+    # form should be empty after submit (template has no value= bindings)
     return render_template(
         "form.html",
         countries=COUNTRIES,
