@@ -84,33 +84,6 @@
             font-size: 12px;
         }
 
-        .price-box {
-            background: #f8f9fa;
-            border: 1px solid #e9ecef;
-            border-radius: 10px;
-            padding: 10px;
-            margin-top: 10px;
-        }
-        .price-box .line,
-        .totals-box .line {
-            display: flex;
-            justify-content: space-between;
-            gap: 12px;
-            padding: 4px 0;
-        }
-        .price-box .label,
-        .totals-box .label { font-weight: 600; }
-        .price-box .value,
-        .totals-box .value { font-weight: 400; }
-
-        .totals-box {
-            background: #ffffff;
-            border: 1px solid #e9ecef;
-            border-radius: 10px;
-            padding: 10px;
-            margin-top: 10px;
-        }
-
         .kv {
             margin-top: 12px;
             font-size: 14px;
@@ -125,7 +98,27 @@
         }
         .kv .key { font-weight: 600; color: #212529; flex: 1; }
         .kv .val { font-weight: 400; color: #212529; flex: 1; text-align: right; word-break: break-word; }
-        .na { color: #dc3545; font-weight: 700; } /* red N/A */
+
+        .na { color: #dc3545; font-weight: 700; }
+
+        /* ✅ GRAND TOTAL: BIG + BLUE */
+        .gt-row {
+            margin-top: 12px;
+            padding: 14px 12px !important;
+            border-radius: 12px;
+            border: 2px solid #0d6efd;
+            background: #e7f1ff;
+        }
+        .gt-row .key {
+            color: #0d6efd !important;
+            font-weight: 900 !important;
+            font-size: 18px !important;
+        }
+        .gt-row .val {
+            color: #0d6efd !important;
+            font-weight: 900 !important;
+            font-size: 22px !important;
+        }
     </style>
 </head>
 
@@ -135,7 +128,7 @@
 
         <h3 class="mb-3 fw-bold text-primary">Logenix — Quote Input</h3>
 
-        <form method="post" action="/submit">
+        <form method="post" action="/submit" autocomplete="off">
 
             <datalist id="locations">
                 {% for c in countries %}
@@ -204,8 +197,10 @@
             </div>
         </form>
 
+        <!-- ✅ SUBMITTED QUERY PRINT (RESTORED) -->
         {% if submitted and data %}
         <hr class="my-4">
+
         <h5 class="fw-bold text-success">Query Submitted</h5>
         <ul class="mt-3">
             <li><strong>Quote ID:</strong> {{ data.quote_id }}</li>
@@ -217,16 +212,18 @@
             <li><strong>Container Type:</strong> {{ data.container_type }}</li>
             <li><strong>Timestamp:</strong> {{ data.timestamp }}</li>
         </ul>
+
         <p class="text-muted"><em>Saved to queries.xlsx</em></p>
         {% endif %}
 
         {% if submitted %}
         <hr class="my-4">
 
+        <!-- ROUTES SECTION -->
         <h5 class="fw-bold text-primary">Available Routes We Provide</h5>
 
         {% if routes and routes|length > 0 %}
-            <div class="row row-cols-1 row-cols-md-1 g-3 mt-2">
+            <div class="row row-cols-1 g-3 mt-2">
                 {% for r in routes %}
                 <div class="col">
                     <div class="p-3 route-card {% if r.id == best_route_id %}best{% endif %}">
@@ -247,6 +244,7 @@
             </div>
         {% endif %}
 
+        <!-- QUOTES SECTION -->
         <hr class="my-4">
         <h5 class="fw-bold text-primary">Matching Quotes</h5>
 
@@ -283,34 +281,12 @@
                             </div>
                         </div>
 
-                        {% if r.price_lines and r.price_lines|length > 0 %}
-                        <div class="price-box">
-                            {% for label, value in r.price_lines %}
-                            <div class="line">
-                                <div class="label">{{ label }}</div>
-                                <div class="value">{{ value }}</div>
-                            </div>
-                            {% endfor %}
-                        </div>
-                        {% endif %}
-
-                        {% if r.totals and r.totals|length > 0 %}
-                        <div class="totals-box">
-                            {% for label, value in r.totals %}
-                            <div class="line">
-                                <div class="label">{{ label }}</div>
-                                <div class="value">{{ value }}</div>
-                            </div>
-                            {% endfor %}
-                        </div>
-                        {% endif %}
-
                         <div class="kv">
                             {% for f in r.fields %}
-                            <div class="rowline">
+                            <div class="rowline {% if f.is_grand_total %}gt-row{% endif %}">
                                 <div class="key">{{ f.key }}</div>
                                 <div class="val">
-                                    {% if f.is_na %}
+                                    {% if f.is_na and not f.is_grand_total %}
                                         <span class="na">N/A</span>
                                     {% else %}
                                         {{ f.val }}

@@ -14,7 +14,6 @@ SHOW_LIMIT = 4  # max 4 quote boxes
 # -------------------------
 # ROUTES (CURRENTLY 3)
 # -------------------------
-
 ROUTES = [
     {
         "id": "R1",
@@ -44,143 +43,8 @@ ROUTES = [
 
 
 # -------------------------
-# BASIC UTILS
+# DROPDOWN / AUTOCOMPLETE LISTS
 # -------------------------
-
-def norm_text(x) -> str:
-    if x is None or pd.isna(x):
-        return ""
-    return str(x).strip().lower()
-
-
-def canon(s: str) -> str:
-    if s is None:
-        return ""
-    s = str(s).replace("\u00A0", " ")
-    s = s.replace("–", "-").replace("—", "-")
-    s = s.strip().lower()
-    s = re.sub(r"\s+", " ", s)
-    return s
-
-
-def safe_str(x) -> str:
-    if x is None or pd.isna(x):
-        return ""
-    return str(x).strip()
-
-
-def fmt_date_like(x):
-    if x is None or pd.isna(x):
-        return None
-    if isinstance(x, (datetime, pd.Timestamp)):
-        return x.strftime("%d-%b-%Y")
-    # try parse date-like strings
-    s = str(x).strip()
-    if not s:
-        return None
-    dt = pd.to_datetime(s, errors="coerce", dayfirst=True)
-    if pd.isna(dt):
-        return None
-    return dt.strftime("%d-%b-%Y")
-
-
-def fmt_money(v):
-    if v is None:
-        return None
-    try:
-        return f"${float(v):,.2f}"
-    except Exception:
-        return None
-
-
-def parse_date_any(v):
-    if v is None or pd.isna(v):
-        return None
-    if isinstance(v, (datetime, pd.Timestamp)):
-        return v.date()
-    s = str(v).strip()
-    if not s:
-        return None
-    dt = pd.to_datetime(s, errors="coerce", dayfirst=True)
-    if pd.isna(dt):
-        return None
-    return dt.date()
-
-
-def parse_price_to_float(v):
-    """
-    Strong numeric parser:
-      - numeric cells
-      - '$850.00', 'USD 850', '850 (approx)', etc
-      - extracts FIRST numeric pattern
-    """
-    if v is None or pd.isna(v):
-        return None
-
-    if isinstance(v, (int, float)) and not isinstance(v, bool):
-        try:
-            return float(v)
-        except Exception:
-            return None
-
-    s = str(v).strip()
-    if not s:
-        return None
-
-    s = s.replace("\u00A0", " ").replace(",", "").replace("$", "").strip()
-    m = re.search(r"(-?\d+(\.\d+)?)", s)
-    if not m:
-        return None
-
-    try:
-        return float(m.group(1))
-    except Exception:
-        return None
-
-
-# -------------------------
-# ROUTE MATCHING
-# -------------------------
-
-def route_match_score(origin: str, destination: str, route: dict) -> int:
-    o = norm_text(origin)
-    d = norm_text(destination)
-
-    origin_ok = any(k in o for k in route.get("origin_keywords", []))
-    if not origin_ok:
-        return 0
-
-    score = 1
-    if any(k in d for k in route.get("destination_city_keywords", [])):
-        score += 3
-    if any(k in d for k in route.get("destination_country_keywords", [])):
-        score += 1
-
-    if score == 1:
-        return 0
-    return score
-
-
-def get_matching_routes(origin: str, destination: str):
-    scored = []
-    for r in ROUTES:
-        s = route_match_score(origin, destination, r)
-        if s > 0:
-            rr = dict(r)
-            rr["score"] = s
-            scored.append(rr)
-
-    if not scored:
-        return [], None
-
-    scored.sort(key=lambda x: x["score"], reverse=True)
-    return scored, scored[0]["id"]
-
-
-# -------------------------
-# DROPDOWNS
-# -------------------------
-
 COUNTRIES = [
     "Pakistan", "United Arab Emirates", "Saudi Arabia", "Qatar", "Oman",
     "Kuwait", "Bahrain", "Turkey", "China", "India", "Afghanistan",
@@ -189,6 +53,7 @@ COUNTRIES = [
     "Malaysia", "Indonesia", "Singapore", "Japan", "South Korea", "Australia",
 
     "Karachi Port",
+    "Almaty",
     "Ladkrabang, Bangkok.",
     "Aqaba Port",
     "Shanghai/Taicang/Ningbo Port",
@@ -311,141 +176,137 @@ BASE_COMMODITIES = [
 
 
 # -------------------------
-# PRICES FILE LOADING
+# UTILS
 # -------------------------
-
-def flatten_multiindex_columns(df: pd.DataFrame) -> pd.DataFrame:
-    if not isinstance(df.columns, pd.MultiIndex):
-        return df
-    new_cols = []
-    for a, b in df.columns:
-        a = "" if (a is None or str(a).startswith("Unnamed")) else str(a).strip()
-        b = "" if (b is None or str(b).startswith("Unnamed")) else str(b).strip()
-        if a and b:
-            new_cols.append(f"{a} {b}".strip())
-        elif b:
-            new_cols.append(b.strip())
-        else:
-            new_cols.append(a.strip())
-    df.columns = new_cols
-    return df
+def norm_text(x) -> str:
+    if x is None or pd.isna(x):
+        return ""
+    return str(x).strip().lower()
 
 
-def looks_like_bad_header(df: pd.DataFrame) -> bool:
-    cols = [str(c) for c in df.columns]
-    suspicious_prefix = any(c.lower().startswith("pol ") or c.lower().startswith("pod ") for c in cols)
-    suspicious_time = any("00:00:00" in c for c in cols)
-    return suspicious_prefix or suspicious_time
+def canon(s: str) -> str:
+    if s is None:
+        return ""
+    s = str(s).replace("\u00A0", " ")
+    s = s.replace("–", "-").replace("—", "-")
+    s = s.strip().lower()
+    s = re.sub(r"\s+", " ", s)
+    return s
 
 
+def fmt_money(v):
+    try:
+        return f"${float(v):,.2f}"
+    except Exception:
+        return None
+
+
+def fmt_date_like(x):
+    if x is None or pd.isna(x):
+        return None
+    if isinstance(x, (datetime, pd.Timestamp)):
+        return x.strftime("%d-%b-%Y")
+    s = str(x).strip()
+    if not s:
+        return None
+    dt = pd.to_datetime(s, errors="coerce", dayfirst=True)
+    if pd.isna(dt):
+        return None
+    return dt.strftime("%d-%b-%Y")
+
+
+def parse_date_any(v):
+    if v is None or pd.isna(v):
+        return None
+    if isinstance(v, (datetime, pd.Timestamp)):
+        return v.date()
+    s = str(v).strip()
+    if not s:
+        return None
+    dt = pd.to_datetime(s, errors="coerce", dayfirst=True)
+    if pd.isna(dt):
+        return None
+    return dt.date()
+
+
+def parse_price_to_float(v):
+    """
+    Parses numbers from:
+      - numeric cells
+      - '$850.00', '850', 'USD 850', '850 approx'
+    """
+    if v is None or pd.isna(v):
+        return None
+
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        try:
+            return float(v)
+        except Exception:
+            return None
+
+    s = str(v).strip()
+    if not s:
+        return None
+
+    s = s.replace("\u00A0", " ").replace(",", "").replace("$", "").strip()
+    m = re.search(r"(-?\d+(\.\d+)?)", s)
+    if not m:
+        return None
+
+    try:
+        return float(m.group(1))
+    except Exception:
+        return None
+
+
+# -------------------------
+# ROUTES MATCHING
+# -------------------------
+def route_match_score(origin: str, destination: str, route: dict) -> int:
+    o = norm_text(origin)
+    d = norm_text(destination)
+
+    origin_ok = any(k in o for k in route.get("origin_keywords", []))
+    if not origin_ok:
+        return 0
+
+    score = 1
+    if any(k in d for k in route.get("destination_city_keywords", [])):
+        score += 3
+    if any(k in d for k in route.get("destination_country_keywords", [])):
+        score += 1
+
+    if score == 1:
+        return 0
+    return score
+
+
+def get_matching_routes(origin: str, destination: str):
+    scored = []
+    for r in ROUTES:
+        s = route_match_score(origin, destination, r)
+        if s > 0:
+            rr = dict(r)
+            rr["score"] = s
+            scored.append(rr)
+
+    if not scored:
+        return [], None
+
+    scored.sort(key=lambda x: x["score"], reverse=True)
+    return scored, scored[0]["id"]
+
+
+# -------------------------
+# EXCEL HELPERS
+# -------------------------
 def load_prices_df():
     if not os.path.exists(PRICES_FILE):
         return None
-
     try:
-        df = pd.read_excel(PRICES_FILE)
-        if df is not None and not df.empty:
-            return df
-    except Exception:
-        pass
-
-    try:
-        df = pd.read_excel(PRICES_FILE, header=[0, 1])
-        df = flatten_multiindex_columns(df)
-        if looks_like_bad_header(df):
-            return None
-        return df
+        return pd.read_excel(PRICES_FILE)
     except Exception:
         return None
-
-
-def find_col(df: pd.DataFrame, needle: str):
-    n = canon(needle)
-    for c in df.columns:
-        if n in canon(c):
-            return c
-    return None
-
-
-def pick_ocean_freight_column(df: pd.DataFrame, ft: str):
-    candidates = [
-        f"Ocean Freight ({ft})",
-        f"Ocean Freight {ft}",
-        f"Ocean Freight/{ft}",
-        f"Ocean Freight - {ft}",
-        f"Ocean Freight {ft.replace('ft','')}",
-        f"Ocean Freight ({ft.replace('ft','')})",
-    ]
-    for cand in candidates:
-        c = find_col(df, cand)
-        if c:
-            return c
-    return None
-
-
-def pick_exworks_column(df: pd.DataFrame, ft: str):
-    candidates = [
-        f"Ex-works ({ft})",
-        f"Ex works ({ft})",
-        f"Ex-works {ft}",
-        f"Ex works {ft}",
-        f"Exworks ({ft})",
-        f"Exworks {ft}",
-    ]
-    for cand in candidates:
-        c = find_col(df, cand)
-        if c:
-            return c
-    return None
-
-
-def pick_switch_bl_column(df: pd.DataFrame):
-    candidates = [
-        "Switch BL",
-        "Switch B/L",
-        "Switch BL Cost",
-        "Switch B/L Cost",
-        "Switch Bill",
-        "Switch Bill Cost",
-    ]
-    for cand in candidates:
-        c = find_col(df, cand)
-        if c:
-            return c
-
-    for c in df.columns:
-        cc = canon(c)
-        if "switch" in cc and ("bl" in cc or "b/l" in cc):
-            return c
-    return None
-
-
-def decide_ft_from_container(container_type: str):
-    ct = norm_text(container_type)
-    if "20" in ct:
-        return "20ft"
-    if "40" in ct:
-        return "40ft"
-    return "40ft"
-
-
-# -------------------------
-# COMMODITIES (BASE + FROM queries.xlsx)
-# -------------------------
-
-def get_commodities():
-    commodities = list(BASE_COMMODITIES)
-    if os.path.exists(EXCEL_FILE):
-        try:
-            df = pd.read_excel(EXCEL_FILE)
-            if "commodity" in df.columns:
-                existing = df["commodity"].dropna().astype(str).str.strip().unique()
-                for c in existing:
-                    if c and c not in commodities:
-                        commodities.append(c)
-        except Exception:
-            pass
-    return commodities
 
 
 def save_to_excel(record):
@@ -458,119 +319,113 @@ def save_to_excel(record):
     df_final.to_excel(EXCEL_FILE, index=False)
 
 
-# -------------------------
-# COST COLUMN DETECTION (for Grand Total)
-# -------------------------
+def get_commodities():
+    """
+    Base list + new commodities typed by users (read from queries.xlsx).
+    """
+    commodities = list(BASE_COMMODITIES)
 
-COST_KEYWORDS = [
-    "charge", "charges",
-    "price", "purchase",
-    "freight",
-    "ex-works", "ex works", "exworks",
-    "switch bl", "switch b/l",
-    "insurance", "guarantee",
-    "custom", "clearance",
-    "scanning", "examination",
-    "tax", "cess",
-    "wharfage", "storage",
-    "profit",
-    "bonded",
-    "manifestation",
-    "soc",
-    "nlc",
-    "overweight",
-    "truck", "trucking", "halting",
-    "miscellaneous",
-    "other_origin",
-]
+    if os.path.exists(EXCEL_FILE):
+        try:
+            df = pd.read_excel(EXCEL_FILE)
+            com_col = next((c for c in df.columns if c.lower() == "commodity"), None)
+            if com_col:
+                existing = df[com_col].dropna().astype(str).str.strip().unique()
+                for c in existing:
+                    if c and c not in commodities:
+                        commodities.append(c)
+        except Exception:
+            pass
 
-EXCLUDE_COST_EXACT = {
-    "weight",  # NOT a cost
-}
-# anything containing 'weight' but NOT 'overweight' should be excluded
-def is_weight_non_cost(col_name: str) -> bool:
-    c = canon(col_name)
-    if c in EXCLUDE_COST_EXACT:
-        return True
-    if "weight" in c and "overweight" not in c:
-        return True
-    return False
-
-
-def is_cost_column(col_name: str) -> bool:
-    c = canon(col_name)
-    if is_weight_non_cost(col_name):
-        return False
-    # also avoid common non-cost ids/dates
-    if any(k in c for k in ["date", "validity", "customer", "vendor", "carrier", "pol", "pod", "commodity", "inquiry", "s.no", "sno", "serial", "route"]):
-        # carrier is not a cost, keep it excluded from total
-        return False
-    return any(k in c for k in COST_KEYWORDS)
+    return commodities
 
 
 # -------------------------
-# QUOTE SEARCH + DISPLAY PACKING
+# GRAND TOTAL LOGIC
 # -------------------------
+def is_charges_column(col_name: str) -> bool:
+    return canon(col_name).endswith("_charges")
 
-def get_strict_quotes(origin, destination, commodity, container_type, limit=4):
+
+def compute_grand_total(row: pd.Series, columns: list[str]):
+    total = 0.0
+    found_any = False
+    for col in columns:
+        if not is_charges_column(col):
+            continue
+        num = parse_price_to_float(row.get(col))
+        if num is None:
+            continue
+        total += num
+        found_any = True
+    return total, found_any
+
+
+# -------------------------
+# QUOTE SEARCH (STRICT + VALIDITY PRIORITY)
+# -------------------------
+def get_strict_quotes(origin, destination, commodity, limit=4):
+    """
+    Priority:
+      1) Rates Validity (valid first, then newest)
+      2) POL exact match (case-insensitive)
+      3) POD exact match
+      4) Commodity exact match
+    """
     df = load_prices_df()
     if df is None or df.empty:
         return [], None, "Could not load prices_updated.xlsx properly. Please confirm the file exists and headers are correct."
 
-    pol_col = "POL" if "POL" in df.columns else find_col(df, "POL")
-    pod_col = "POD" if "POD" in df.columns else find_col(df, "POD")
-    com_col = "Commodity" if "Commodity" in df.columns else find_col(df, "Commodity")
-    validity_col = "Rates Validity" if "Rates Validity" in df.columns else find_col(df, "Rates Validity")
-
-    if not pol_col or not pod_col or not com_col or not validity_col:
-        return [], None, "Missing required columns in prices_updated.xlsx (need POL, POD, Commodity, Rates Validity)."
+    required = ["POL", "POD", "Commodity", "Rates Validity"]
+    for r in required:
+        if r not in df.columns:
+            return [], None, f"Missing required column in prices_updated.xlsx: {r}"
 
     user_pol = norm_text(origin)
     user_pod = norm_text(destination)
     user_com = norm_text(commodity)
 
     df_match = df[
-        (df[pol_col].astype(str).str.strip().str.lower() == user_pol) &
-        (df[pod_col].astype(str).str.strip().str.lower() == user_pod) &
-        (df[com_col].astype(str).str.strip().str.lower() == user_com)
+        (df["POL"].astype(str).str.strip().str.lower() == user_pol) &
+        (df["POD"].astype(str).str.strip().str.lower() == user_pod) &
+        (df["Commodity"].astype(str).str.strip().str.lower() == user_com)
     ].copy()
 
     if df_match.empty:
         return [], None, None
 
     today = date.today()
-    df_match["_validity_date"] = df_match[validity_col].apply(parse_date_any)
+    df_match["_validity_date"] = df_match["Rates Validity"].apply(parse_date_any)
     df_match["_is_valid"] = df_match["_validity_date"].apply(lambda d: (d is not None and d >= today))
-
-    ocean_20_col = pick_ocean_freight_column(df_match, "20ft")
-    ocean_40_col = pick_ocean_freight_column(df_match, "40ft")
-    ex_20_col = pick_exworks_column(df_match, "20ft")
-    ex_40_col = pick_exworks_column(df_match, "40ft")
-    switch_col = pick_switch_bl_column(df_match)
-
-    # best based on selected container size (20/40)
-    ft_best = decide_ft_from_container(container_type)
-    ocean_best_col = ocean_40_col if ft_best == "40ft" else ocean_20_col
-    if ocean_best_col and ocean_best_col in df_match.columns:
-        df_match["_ocean_price"] = df_match[ocean_best_col].apply(parse_price_to_float)
-    else:
-        df_match["_ocean_price"] = None
-
-    # sort valid first, then latest validity
     df_match["_valid_sort"] = df_match["_is_valid"].apply(lambda x: 1 if x else 0)
+
+    # Sort by validity then latest date
     df_match = df_match.sort_values(
         by=["_valid_sort", "_validity_date"],
         ascending=[False, False],
         na_position="last"
     ).head(limit)
 
-    # best row among VALID with numeric ocean price
-    best_idx = None
-    valid_rows = df_match[(df_match["_is_valid"] == True) & (df_match["_ocean_price"].notna())]
-    if not valid_rows.empty:
-        best_idx = valid_rows.sort_values("_ocean_price", ascending=True).index[0]
-
+    # Best option: among valid rows choose lowest Grand Total (if any total exists), else first valid, else first
     display_cols = [c for c in df_match.columns if not str(c).startswith("_")]
+
+    df_match["_grand_total_num"] = 0.0
+    df_match["_grand_total_has"] = False
+    for idx, row in df_match.iterrows():
+        total_num, found_any = compute_grand_total(row, display_cols)
+        df_match.at[idx, "_grand_total_num"] = float(total_num)
+        df_match.at[idx, "_grand_total_has"] = bool(found_any)
+
+    valid_rows = df_match[df_match["_is_valid"] == True]
+    best_idx = None
+    if not valid_rows.empty:
+        valid_with_total = valid_rows[valid_rows["_grand_total_has"] == True]
+        if not valid_with_total.empty:
+            best_idx = valid_with_total.sort_values("_grand_total_num", ascending=True).index[0]
+        else:
+            best_idx = valid_rows.index[0]
+    else:
+        best_idx = df_match.index[0]
 
     results = []
     for idx, row in df_match.iterrows():
@@ -585,109 +440,58 @@ def get_strict_quotes(origin, destination, commodity, container_type, limit=4):
             validity_label = f"Validity: Expired (until {vd.strftime('%d/%m/%Y')})"
             validity_kind = "expired"
 
-        # show raw core prices (only if parseable)
-        switch_val = parse_price_to_float(row.get(switch_col)) if switch_col else None
-        ex20 = parse_price_to_float(row.get(ex_20_col)) if ex_20_col else None
-        ex40 = parse_price_to_float(row.get(ex_40_col)) if ex_40_col else None
-        oc20 = parse_price_to_float(row.get(ocean_20_col)) if ocean_20_col else None
-        oc40 = parse_price_to_float(row.get(ocean_40_col)) if ocean_40_col else None
-
-        price_lines = []
-        if switch_val is not None:
-            price_lines.append(("Switch BL", fmt_money(switch_val)))
-        if ex20 is not None:
-            price_lines.append(("Ex-Works (20ft)", fmt_money(ex20)))
-        if ex40 is not None:
-            price_lines.append(("Ex-Works (40ft)", fmt_money(ex40)))
-        if oc20 is not None:
-            price_lines.append(("Ocean Freight (20ft)", fmt_money(oc20)))
-        if oc40 is not None:
-            price_lines.append(("Ocean Freight (40ft)", fmt_money(oc40)))
-
-        # requested totals for switch+container prices
-        totals = []
-        if switch_val is not None and ex20 is not None:
-            totals.append(("Total Price: Switch BL + Ex-Works (20ft)", fmt_money(switch_val + ex20)))
-        if switch_val is not None and ex40 is not None:
-            totals.append(("Total Price: Switch BL + Ex-Works (40ft)", fmt_money(switch_val + ex40)))
-        if switch_val is not None and oc20 is not None:
-            totals.append(("Total Price: Switch BL + Ocean Freight (20ft)", fmt_money(switch_val + oc20)))
-        if switch_val is not None and oc40 is not None:
-            totals.append(("Total Price: Switch BL + Ocean Freight (40ft)", fmt_money(switch_val + oc40)))
-
-        # GRAND TOTAL: sum all cost-like columns available in this row
-        grand_total = 0.0
-        grand_has_any = False
-        grand_components = []
-        for col in display_cols:
-            if not is_cost_column(col):
-                continue
-            val = parse_price_to_float(row.get(col))
-            if val is None:
-                continue
-            grand_has_any = True
-            grand_total += val
-            # show component too
-            grand_components.append((str(col), fmt_money(val)))
-
-        if grand_has_any:
-            totals.append(("Grand Total (all prices found)", fmt_money(grand_total)))
-
-        # ALL FIELDS, with N/A red if empty
         fields = []
         for col in display_cols:
             raw = row.get(col)
 
-            # empty?
+            # Empty -> N/A in red in UI
             if raw is None or pd.isna(raw) or str(raw).strip() == "":
-                fields.append({"key": str(col), "val": None, "is_na": True})
+                fields.append({"key": str(col), "val": None, "is_na": True, "is_grand_total": False})
                 continue
 
-            # nice formatting for dates
+            # Date formatting
             if "date" in canon(col) or "validity" in canon(col):
                 d = fmt_date_like(raw)
-                if d is None:
-                    fields.append({"key": str(col), "val": None, "is_na": True})
-                else:
-                    fields.append({"key": str(col), "val": d, "is_na": False})
+                fields.append({"key": str(col), "val": d if d else None, "is_na": (d is None), "is_grand_total": False})
                 continue
 
-            # show money formatting for cost columns when parseable
-            if is_cost_column(col):
+            # Charges formatting
+            if is_charges_column(col):
                 num = parse_price_to_float(raw)
                 if num is not None:
-                    fields.append({"key": str(col), "val": fmt_money(num), "is_na": False})
+                    fields.append({"key": str(col), "val": fmt_money(num), "is_na": False, "is_grand_total": False})
                 else:
-                    fields.append({"key": str(col), "val": safe_str(raw), "is_na": False})
+                    fields.append({"key": str(col), "val": str(raw).strip(), "is_na": False, "is_grand_total": False})
                 continue
 
-            # default string
-            fields.append({"key": str(col), "val": safe_str(raw), "is_na": False})
+            fields.append({"key": str(col), "val": str(raw).strip(), "is_na": False, "is_grand_total": False})
 
-        results.append({
-            "is_best": (best_idx is not None and idx == best_idx),
-            "title": f"{safe_str(row.get(pol_col))} ➜ {safe_str(row.get(pod_col))}",
-            "validity_label": validity_label,
-            "validity_kind": validity_kind,
-            "price_lines": price_lines,
-            "totals": totals,
-            "fields": fields,
+        # Add Grand Total as LAST field so it always shows at end of list
+        total_num, found_any = compute_grand_total(row, display_cols)
+        grand_total_str = fmt_money(total_num) if found_any else "N/A"
+
+        fields.append({
+            "key": "Grand Total",
+            "val": grand_total_str,
+            "is_na": (grand_total_str == "N/A"),
+            "is_grand_total": True
         })
 
-    best_text = None
-    if best_idx is not None:
-        best_price_num = df_match.at[best_idx, "_ocean_price"]
-        best_price_num = parse_price_to_float(best_price_num)
-        if best_price_num is not None:
-            best_text = f"Best Option available (valid rate + lowest {ft_best} Ocean Freight): {fmt_money(best_price_num)}"
+        results.append({
+            "is_best": (idx == best_idx),
+            "title": f"{str(row.get('POL')).strip()} ➜ {str(row.get('POD')).strip()}",
+            "validity_label": validity_label,
+            "validity_kind": validity_kind,
+            "fields": fields
+        })
 
+    best_text = "Best Option available based on rate validity and match."
     return results, best_text, None
 
 
 # -------------------------
-# APP ROUTES
+# ROUTES
 # -------------------------
-
 @app.route("/", methods=["GET"])
 def index():
     return render_template(
@@ -728,11 +532,11 @@ def submit():
         origin=data["shipping_from"],
         destination=data["destination"],
         commodity=data["commodity"],
-        container_type=data["container_type"],
         limit=SHOW_LIMIT
     )
 
-    # form should be empty after submit (template has no value= bindings)
+    # IMPORTANT: Form fields should be empty after submit.
+    # We do NOT pass any default values into inputs in HTML.
     return render_template(
         "form.html",
         countries=COUNTRIES,
