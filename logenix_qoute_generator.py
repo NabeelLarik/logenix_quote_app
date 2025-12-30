@@ -361,6 +361,22 @@ def compute_grand_total(row: pd.Series, columns: list[str]):
     return total, found_any
 
 
+def compute_grand_totals_for_df(df: pd.DataFrame, display_cols: list[str]):
+    """
+    ✅ FIX for Pylance: no df.at[idx, col] per-row assignment.
+    Returns two lists aligned with df.index:
+      - totals (float)
+      - has_any (bool)
+    """
+    totals: list[float] = []
+    has_any: list[bool] = []
+    for _, row in df.iterrows():
+        t, ok = compute_grand_total(row, display_cols)
+        totals.append(float(t))
+        has_any.append(bool(ok))
+    return totals, has_any
+
+
 # -------------------------
 # QUOTE SEARCH (STRICT + VALIDITY PRIORITY)
 # -------------------------
@@ -409,15 +425,11 @@ def get_strict_quotes(origin, destination, commodity, limit=4):
     # Best option: among valid rows choose lowest Grand Total (if any total exists), else first valid, else first
     display_cols = [c for c in df_match.columns if not str(c).startswith("_")]
 
-    df_match["_grand_total_num"] = 0.0
-    df_match["_grand_total_has"] = False
-    for idx, row in df_match.iterrows():
-        total_num, found_any = compute_grand_total(row, display_cols)
-        df_match.at[idx, "_grand_total_num"] = float(total_num)
-        df_match.at[idx, "_grand_total_has"] = bool(found_any)
+    totals, has_any = compute_grand_totals_for_df(df_match, display_cols)
+    df_match["_grand_total_num"] = totals
+    df_match["_grand_total_has"] = has_any
 
     valid_rows = df_match[df_match["_is_valid"] == True]
-    best_idx = None
     if not valid_rows.empty:
         valid_with_total = valid_rows[valid_rows["_grand_total_has"] == True]
         if not valid_with_total.empty:
@@ -466,7 +478,7 @@ def get_strict_quotes(origin, destination, commodity, limit=4):
 
             fields.append({"key": str(col), "val": str(raw).strip(), "is_na": False, "is_grand_total": False})
 
-        # Add Grand Total as LAST field so it always shows at end of list
+        # Add Grand Total as LAST field so it always shows
         total_num, found_any = compute_grand_total(row, display_cols)
         grand_total_str = fmt_money(total_num) if found_any else "N/A"
 
@@ -535,8 +547,7 @@ def submit():
         limit=SHOW_LIMIT
     )
 
-    # IMPORTANT: Form fields should be empty after submit.
-    # We do NOT pass any default values into inputs in HTML.
+    # Form fields will be empty after submit (no values are re-injected into inputs)
     return render_template(
         "form.html",
         countries=COUNTRIES,
