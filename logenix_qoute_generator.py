@@ -53,7 +53,6 @@ COUNTRIES = [
     "Malaysia", "Indonesia", "Singapore", "Japan", "South Korea", "Australia",
 
     "Karachi Port",
-    "Almaty",
     "Ladkrabang, Bangkok.",
     "Aqaba Port",
     "Shanghai/Taicang/Ningbo Port",
@@ -174,6 +173,67 @@ BASE_COMMODITIES = [
     "Surgical Disposable Item"
 ]
 
+SALESPERSONS = ["Sulaiman", "Ahmed", "Dawood"]
+
+CARGO_TYPES = [
+    "General Cargo",
+    "Containerized Cargo",
+    "Bulk Cargo (Dry Bulk)",
+    "Liquid Bulk Cargo",
+    "Break Bulk Cargo",
+    "Project Cargo",
+    "Perishable Cargo",
+    "DG Dangerous / Hazardous Cargo",
+    "Roll-on/Roll-off (RoRo) Cargo",
+    "Temperature-Controlled (Reefer) Cargo",
+]
+
+CONTAINER_TYPES = [
+    "Dry Container (General Purpose)",
+    "High Cube Container",
+    "Reefer Container",
+    "Open Top Container",
+    "Flat Rack Container",
+    "Tank Container",
+    "Open Side Container",
+    "Ventilated Container",
+    "Insulated Container",
+]
+
+CONTAINER_SIZES = [
+    "20 ft",
+    "40 ft",
+    "40 ft High Cube",
+    "45 ft High Cube",
+    "20 ft Reefer",
+    "40 ft Reefer",
+]
+
+PACKAGING_TYPES = [
+    "Loose Cargo",
+    "Palletized (Stackable)",
+    "Palletized (non-stackable)",
+    "Floor-Loaded",
+    "Carton Packed",
+    "Crated",
+    "Drummed",
+    "Bagged / Sacked",
+    "Jumbo Bags (FIBC)",
+    "Baled",
+    "Bundled",
+    "Coiled / Rolled",
+    "IBC Packed",
+    "Unitized",
+    "Shrink-Wrapped",
+    "Breakbulk Packed",
+    "Stackable",
+    "Non-Stackable",
+    "Top-Load Only",
+    "Fragile",
+    "Overweight",
+    "Out of Gauge (OOG)",
+]
+
 
 # -------------------------
 # UTILS
@@ -230,11 +290,6 @@ def parse_date_any(v):
 
 
 def parse_price_to_float(v):
-    """
-    Parses numbers from:
-      - numeric cells
-      - '$850.00', '850', 'USD 850', '850 approx'
-    """
     if v is None or pd.isna(v):
         return None
 
@@ -253,6 +308,22 @@ def parse_price_to_float(v):
     if not m:
         return None
 
+    try:
+        return float(m.group(1))
+    except Exception:
+        return None
+
+
+def parse_percent_to_float(text: str):
+    if text is None:
+        return None
+    s = str(text).strip().lower()
+    if not s or s == "none":
+        return None
+    s = s.replace("%", "").strip()
+    m = re.search(r"(-?\d+(\.\d+)?)", s)
+    if not m:
+        return None
     try:
         return float(m.group(1))
     except Exception:
@@ -320,11 +391,7 @@ def save_to_excel(record):
 
 
 def get_commodities():
-    """
-    Base list + new commodities typed by users (read from queries.xlsx).
-    """
     commodities = list(BASE_COMMODITIES)
-
     if os.path.exists(EXCEL_FILE):
         try:
             df = pd.read_excel(EXCEL_FILE)
@@ -336,8 +403,55 @@ def get_commodities():
                         commodities.append(c)
         except Exception:
             pass
-
     return commodities
+
+
+def get_salespersons():
+    persons = list(SALESPERSONS)
+    if os.path.exists(EXCEL_FILE):
+        try:
+            df = pd.read_excel(EXCEL_FILE)
+            col = next((c for c in df.columns if c.lower() == "salesperson_name"), None)
+            if col:
+                existing = df[col].dropna().astype(str).str.strip().unique()
+                for p in existing:
+                    if p and p not in persons:
+                        persons.append(p)
+        except Exception:
+            pass
+    return persons
+
+
+def get_cargo_types():
+    types = list(CARGO_TYPES)
+    if os.path.exists(EXCEL_FILE):
+        try:
+            df = pd.read_excel(EXCEL_FILE)
+            col = next((c for c in df.columns if c.lower() == "cargo_type"), None)
+            if col:
+                existing = df[col].dropna().astype(str).str.strip().unique()
+                for t in existing:
+                    if t and t not in types:
+                        types.append(t)
+        except Exception:
+            pass
+    return types
+
+
+def get_packaging_types():
+    types = list(PACKAGING_TYPES)
+    if os.path.exists(EXCEL_FILE):
+        try:
+            df = pd.read_excel(EXCEL_FILE)
+            col = next((c for c in df.columns if c.lower() == "packaging_type"), None)
+            if col:
+                existing = df[col].dropna().astype(str).str.strip().unique()
+                for t in existing:
+                    if t and t not in types:
+                        types.append(t)
+        except Exception:
+            pass
+    return types
 
 
 # -------------------------
@@ -362,12 +476,6 @@ def compute_grand_total(row: pd.Series, columns: list[str]):
 
 
 def compute_grand_totals_for_df(df: pd.DataFrame, display_cols: list[str]):
-    """
-    ✅ FIX for Pylance: no df.at[idx, col] per-row assignment.
-    Returns two lists aligned with df.index:
-      - totals (float)
-      - has_any (bool)
-    """
     totals: list[float] = []
     has_any: list[bool] = []
     for _, row in df.iterrows():
@@ -381,13 +489,6 @@ def compute_grand_totals_for_df(df: pd.DataFrame, display_cols: list[str]):
 # QUOTE SEARCH (STRICT + VALIDITY PRIORITY)
 # -------------------------
 def get_strict_quotes(origin, destination, commodity, limit=4):
-    """
-    Priority:
-      1) Rates Validity (valid first, then newest)
-      2) POL exact match (case-insensitive)
-      3) POD exact match
-      4) Commodity exact match
-    """
     df = load_prices_df()
     if df is None or df.empty:
         return [], None, "Could not load prices_updated.xlsx properly. Please confirm the file exists and headers are correct."
@@ -415,14 +516,12 @@ def get_strict_quotes(origin, destination, commodity, limit=4):
     df_match["_is_valid"] = df_match["_validity_date"].apply(lambda d: (d is not None and d >= today))
     df_match["_valid_sort"] = df_match["_is_valid"].apply(lambda x: 1 if x else 0)
 
-    # Sort by validity then latest date
     df_match = df_match.sort_values(
         by=["_valid_sort", "_validity_date"],
         ascending=[False, False],
         na_position="last"
     ).head(limit)
 
-    # Best option: among valid rows choose lowest Grand Total (if any total exists), else first valid, else first
     display_cols = [c for c in df_match.columns if not str(c).startswith("_")]
 
     totals, has_any = compute_grand_totals_for_df(df_match, display_cols)
@@ -456,18 +555,15 @@ def get_strict_quotes(origin, destination, commodity, limit=4):
         for col in display_cols:
             raw = row.get(col)
 
-            # Empty -> N/A in red in UI
             if raw is None or pd.isna(raw) or str(raw).strip() == "":
                 fields.append({"key": str(col), "val": None, "is_na": True, "is_grand_total": False})
                 continue
 
-            # Date formatting
             if "date" in canon(col) or "validity" in canon(col):
                 d = fmt_date_like(raw)
                 fields.append({"key": str(col), "val": d if d else None, "is_na": (d is None), "is_grand_total": False})
                 continue
 
-            # Charges formatting
             if is_charges_column(col):
                 num = parse_price_to_float(raw)
                 if num is not None:
@@ -478,7 +574,6 @@ def get_strict_quotes(origin, destination, commodity, limit=4):
 
             fields.append({"key": str(col), "val": str(raw).strip(), "is_na": False, "is_grand_total": False})
 
-        # Add Grand Total as LAST field so it always shows
         total_num, found_any = compute_grand_total(row, display_cols)
         grand_total_str = fmt_money(total_num) if found_any else "N/A"
 
@@ -510,6 +605,11 @@ def index():
         "form.html",
         countries=COUNTRIES,
         commodities=get_commodities(),
+        salespersons=get_salespersons(),
+        cargo_types=get_cargo_types(),
+        container_types=CONTAINER_TYPES,
+        container_sizes=CONTAINER_SIZES,
+        packaging_types=get_packaging_types(),
         submitted=False,
         data=None,
         routes=[],
@@ -522,14 +622,123 @@ def index():
 
 @app.route("/submit", methods=["POST"])
 def submit():
+    shipment_type = request.form.get("shipment_type", "").strip()
+    incoterm = request.form.get("incoterm", "").strip()
+    salesperson_name = request.form.get("salesperson_name", "").strip()
+    container_ownership = request.form.get("container_ownership", "").strip()
+
+    # ✅ NEW: lifting/labor required
+    lifting_labor_required = request.form.get("lifting_labor_required", "").strip()
+
+    transit_border_1 = request.form.get("transit_border_1", "").strip()
+    transit_border_2 = request.form.get("transit_border_2", "").strip()
+    transit_border_3 = request.form.get("transit_border_3", "").strip()
+    transit_border_4 = request.form.get("transit_border_4", "").strip()
+
+    cargo_type = request.form.get("cargo_type", "").strip()
+    packaging_type = request.form.get("packaging_type", "").strip()
+
+    free_days_return_raw = request.form.get("free_days_return", "").strip()
+    try:
+        free_days_return = int(free_days_return_raw)
+    except Exception:
+        free_days_return = ""
+
+    reloading_required = request.form.get("reloading_required", "").strip()
+    reloading_count_raw = request.form.get("reloading_count", "").strip()
+
+    reloading_count = 0
+    reloading_places_list = []
+
+    if reloading_required.lower() == "yes":
+        try:
+            reloading_count = int(reloading_count_raw)
+        except Exception:
+            reloading_count = 0
+
+        if reloading_count < 0:
+            reloading_count = 0
+        if reloading_count > 5:
+            reloading_count = 5
+
+        for i in range(1, reloading_count + 1):
+            place = request.form.get(f"reloading_place_{i}", "").strip()
+            if place:
+                reloading_places_list.append(place)
+
+    reloading_places = "; ".join(reloading_places_list)
+
+    weight_choice = request.form.get("weight_choice", "").strip()
+    weight_other = request.form.get("weight_other", "").strip()
+    if weight_choice == "Other":
+        weight_final = weight_other if weight_other else ""
+    else:
+        weight_final = weight_choice
+
+    container_size = request.form.get("container_size", "").strip()
+
+    num_containers_raw = request.form.get("num_containers", "").strip()
+    try:
+        num_containers = int(num_containers_raw)
+    except Exception:
+        num_containers = ""
+
+    cargo_value_raw = request.form.get("cargo_value", "").strip()
+    cargo_value_num = parse_price_to_float(cargo_value_raw)
+    cargo_value_saved = cargo_value_num if cargo_value_num is not None else (cargo_value_raw if cargo_value_raw else "")
+
+    insurance_rate_raw = request.form.get("insurance_rate", "").strip()
+    insurance_rate_num = parse_percent_to_float(insurance_rate_raw)
+
+    insurance_amount_num = None
+    if cargo_value_num is not None and insurance_rate_num is not None:
+        insurance_amount_num = (insurance_rate_num / 100.0) * cargo_value_num
+
+    insurance_rate_saved = insurance_rate_raw if insurance_rate_raw else ""
+    if insurance_rate_raw.strip().lower() == "none":
+        insurance_rate_saved = "none"
+
+    insurance_amount_saved = fmt_money(insurance_amount_num) if insurance_amount_num is not None else ""
+
     data = {
         "quote_id": f"QUOTE-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
         "company_name": request.form["company_name"],
+        "salesperson_name": salesperson_name,
         "shipping_from": request.form["shipping_from"],
         "destination": request.form["destination"],
+
+        "transit_border_1": transit_border_1,
+        "transit_border_2": transit_border_2,
+        "transit_border_3": transit_border_3,
+        "transit_border_4": transit_border_4,
+
+        "cargo_type": cargo_type,
+        "packaging_type": packaging_type,
+
+        "free_days_return": free_days_return,
+
+        # ✅ NEW saved
+        "lifting_labor_required": lifting_labor_required,
+
+        "reloading_required": reloading_required,
+        "reloading_count": reloading_count if reloading_required.lower() == "yes" else 0,
+        "reloading_places": reloading_places if reloading_required.lower() == "yes" else "",
+
         "commodity": request.form["commodity"],
-        "weight_tons": request.form["weight_tons"],
+        "weight_tons": weight_final,
         "container_type": request.form["container_type"],
+        "container_size": container_size,
+
+        "num_containers": num_containers,
+
+        "shipment_type": shipment_type,
+        "incoterm": incoterm,
+        "container_ownership": container_ownership,
+
+        "cargo_value": cargo_value_saved,
+        "insurance_rate": insurance_rate_saved,
+        "insurance_amount": insurance_amount_saved,
+
         "timestamp": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
     }
 
@@ -547,11 +756,15 @@ def submit():
         limit=SHOW_LIMIT
     )
 
-    # Form fields will be empty after submit (no values are re-injected into inputs)
     return render_template(
         "form.html",
         countries=COUNTRIES,
         commodities=get_commodities(),
+        salespersons=get_salespersons(),
+        cargo_types=get_cargo_types(),
+        container_types=CONTAINER_TYPES,
+        container_sizes=CONTAINER_SIZES,
+        packaging_types=get_packaging_types(),
         submitted=True,
         data=data,
         routes=matched_routes,
