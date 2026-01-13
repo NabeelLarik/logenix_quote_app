@@ -216,6 +216,20 @@
                 <option value="none">
             </datalist>
 
+            <!-- ✅ NEW: Misc cost options -->
+            <datalist id="misc_costs">
+                <option value="50$">
+                <option value="100$">
+                <option value="150$">
+                <option value="200$">
+                <option value="250$">
+                <option value="300$">
+                <option value="350$">
+                <option value="400$">
+                <option value="450$">
+                <option value="500$">
+            </datalist>
+
             <div class="row g-3">
                 <div class="col-md-6">
                     <label class="form-label">Company Name / Your Name</label>
@@ -284,7 +298,7 @@
                            placeholder="Enter free days (integer)">
                 </div>
 
-                <!-- ✅ NEW: Lifting/Labor required -->
+                <!-- Lifting/Labor required -->
                 <div class="col-md-6">
                     <div class="shipment-box">
                         <div class="shipment-title">Lifting / Labor required?</div>
@@ -297,6 +311,40 @@
                         <div class="form-check mt-1">
                             <input class="form-check-input" type="radio" name="lifting_labor_required" id="lift_no" value="No" required>
                             <label class="form-check-label" for="lift_no">No</label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Offloading responsible -->
+                <div class="col-md-6">
+                    <div class="shipment-box">
+                        <div class="shipment-title">Who is responsible for offloading?</div>
+
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="offloading_responsible" id="offload_customer" value="Customer" required>
+                            <label class="form-check-label" for="offload_customer">Customer</label>
+                        </div>
+
+                        <div class="form-check mt-1">
+                            <input class="form-check-input" type="radio" name="offloading_responsible" id="offload_logenix" value="Logenix" required>
+                            <label class="form-check-label" for="offload_logenix">Logenix</label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Final Customs responsible -->
+                <div class="col-md-6">
+                    <div class="shipment-box">
+                        <div class="shipment-title">Who is responsible for Final Customs?</div>
+
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="final_customs_responsible" id="customs_customer" value="Customer" required>
+                            <label class="form-check-label" for="customs_customer">Customer</label>
+                        </div>
+
+                        <div class="form-check mt-1">
+                            <input class="form-check-input" type="radio" name="final_customs_responsible" id="customs_logenix" value="Logenix" required>
+                            <label class="form-check-label" for="customs_logenix">Logenix</label>
                         </div>
                     </div>
                 </div>
@@ -331,9 +379,7 @@
                         </div>
 
                         <div class="reload-places" id="reloading_places_wrap" style="display:none;">
-                            <div class="row g-3" id="reloading_places_container">
-                                <!-- dynamic inputs inserted here -->
-                            </div>
+                            <div class="row g-3" id="reloading_places_container"></div>
                         </div>
 
                     </div>
@@ -361,6 +407,14 @@
                         If you want insurance then please give the cargo value first.
                     </div>
                     <div id="insurance_calc" class="calc-line"></div>
+                </div>
+
+                <!-- ✅ NEW: Miscellaneous Cost (optional) -->
+                <div class="col-md-6">
+                    <label class="form-label">Miscellaneous Cost (Optional)</label>
+                    <input name="misc_cost" class="form-control" list="misc_costs"
+                           placeholder="Select (e.g., 200$) or type integer (e.g., 275) — optional">
+                    <div class="helper-note">You can leave this empty.</div>
                 </div>
 
                 <!-- Weight -->
@@ -650,8 +704,9 @@
 
             <li><strong>Free Days to Return Container:</strong> {{ data.free_days_return }}</li>
 
-            <!-- ✅ NEW shown -->
             <li><strong>Lifting / Labor required?:</strong> {{ data.lifting_labor_required }}</li>
+            <li><strong>Who is responsible for offloading?:</strong> {{ data.offloading_responsible }}</li>
+            <li><strong>Who is responsible for Final Customs?:</strong> {{ data.final_customs_responsible }}</li>
 
             <li><strong>Reloading Required:</strong> {{ data.reloading_required }}</li>
             <li><strong>Reloading Count:</strong> {{ data.reloading_count }}</li>
@@ -666,6 +721,9 @@
             <li><strong>Cargo Value:</strong> {{ data.cargo_value }}</li>
             <li><strong>Insurance Rate:</strong> {{ data.insurance_rate }}</li>
             <li><strong>Insurance Amount:</strong> {{ data.insurance_amount }}</li>
+
+            <!-- ✅ NEW shown -->
+            <li><strong>Miscellaneous Cost (Optional):</strong> {{ data.misc_cost }}</li>
 
             <li><strong>Shipment Type:</strong> {{ data.shipment_type }}</li>
             <li><strong>Incoterm:</strong> {{ data.incoterm }}</li>

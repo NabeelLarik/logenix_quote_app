@@ -627,8 +627,10 @@ def submit():
     salesperson_name = request.form.get("salesperson_name", "").strip()
     container_ownership = request.form.get("container_ownership", "").strip()
 
-    # ✅ NEW: lifting/labor required
     lifting_labor_required = request.form.get("lifting_labor_required", "").strip()
+
+    offloading_responsible = request.form.get("offloading_responsible", "").strip()
+    final_customs_responsible = request.form.get("final_customs_responsible", "").strip()
 
     transit_border_1 = request.form.get("transit_border_1", "").strip()
     transit_border_2 = request.form.get("transit_border_2", "").strip()
@@ -700,6 +702,11 @@ def submit():
 
     insurance_amount_saved = fmt_money(insurance_amount_num) if insurance_amount_num is not None else ""
 
+    # ✅ NEW: Miscellaneous Cost (Optional)
+    misc_cost_raw = request.form.get("misc_cost", "").strip()
+    # Save as-is (empty allowed). If it includes "$", keep it.
+    misc_cost_saved = misc_cost_raw
+
     data = {
         "quote_id": f"QUOTE-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
         "company_name": request.form["company_name"],
@@ -717,8 +724,10 @@ def submit():
 
         "free_days_return": free_days_return,
 
-        # ✅ NEW saved
         "lifting_labor_required": lifting_labor_required,
+
+        "offloading_responsible": offloading_responsible,
+        "final_customs_responsible": final_customs_responsible,
 
         "reloading_required": reloading_required,
         "reloading_count": reloading_count if reloading_required.lower() == "yes" else 0,
@@ -738,6 +747,9 @@ def submit():
         "cargo_value": cargo_value_saved,
         "insurance_rate": insurance_rate_saved,
         "insurance_amount": insurance_amount_saved,
+
+        # ✅ NEW saved
+        "misc_cost": misc_cost_saved,
 
         "timestamp": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
     }
