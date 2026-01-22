@@ -751,8 +751,6 @@ def get_strict_quotes(origin, destination, commodity, container_size_label: str,
 
         pol_disp = str(row.get("POL", "")).strip()
         pod_disp = str(row.get("POD", "")).strip()
-        # Updated title format:
-        # "20ft Shipping from Karachi Port to Almaty"
         title = f"{csl + ' ' if csl else ''}Shipping from {pol_disp} to {pod_disp}"
 
         results.append({
@@ -829,7 +827,6 @@ def build_display_items_for_submitted(data: Dict[str, Any]) -> List[Dict[str, st
     add("Container Size", "container_size")
     add("Number of Containers", "num_containers")
 
-    # Dimensions / Temperature
     add("Width (ft)", "width_ft")
     add("Height (ft)", "height_ft")
     add("Temperature (°C)", "temperature_c")
@@ -874,7 +871,6 @@ def index():
         submitted=False,
         submitted_items=[],
 
-        # routes UI
         routes=[],
         best_route_id=None,
         selected_route_id=None,
@@ -890,9 +886,6 @@ def index():
 def submit():
     action = request.form.get("_action", "next").strip().lower()
 
-    # -------------------------
-    # read POL/POD (up to 4 each)
-    # -------------------------
     pols = []
     pods = []
     for i in range(1, 5):
@@ -902,9 +895,6 @@ def submit():
     shipping_from_1 = pols[0] if len(pols) > 0 else ""
     destination_1 = pods[0] if len(pods) > 0 else ""
 
-    # -------------------------
-    # Basic fields
-    # -------------------------
     company_name = request.form.get("company_name", "").strip()
     salesperson_name = request.form.get("salesperson_name", "").strip()
     container_ownership = request.form.get("container_ownership", "").strip()
@@ -931,7 +921,6 @@ def submit():
     except Exception:
         free_days_return = ""
 
-    # Reloading
     reloading_required = request.form.get("reloading_required", "").strip()
     reloading_count_raw = request.form.get("reloading_count", "").strip()
 
@@ -956,7 +945,6 @@ def submit():
 
     reloading_places = "; ".join(reloading_places_list)
 
-    # Weight
     weight_choice = request.form.get("weight_choice", "").strip()
     weight_other = request.form.get("weight_other", "").strip()
     if weight_choice == "Other":
@@ -964,7 +952,6 @@ def submit():
     else:
         weight_final = weight_choice
 
-    # Container fields
     container_type = request.form.get("container_type", "").strip()
     container_size_raw = request.form.get("container_size", "").strip()
     container_size = clean_container_size_label(container_size_raw)
@@ -975,12 +962,10 @@ def submit():
     except Exception:
         num_containers = ""
 
-    # Dimensions / Temperature (mandatory depending on container type)
     width_ft = request.form.get("width_ft", "").strip()
     height_ft = request.form.get("height_ft", "").strip()
     temperature_c = request.form.get("temperature_c", "").strip()
 
-    # Commodity and costs
     commodity = request.form.get("commodity", "").strip()
 
     cargo_value_raw = request.form.get("cargo_value", "").strip()
@@ -1010,9 +995,6 @@ def submit():
         reason = request.form.get("reason", "").strip()
         special_cost = request.form.get("special_cost", "").strip()
 
-    # -------------------------
-    # build form_data for repopulation (for NEXT step)
-    # -------------------------
     form_data: Dict[str, Any] = {
         "company_name": company_name,
         "salesperson_name": salesperson_name,
@@ -1044,7 +1026,7 @@ def submit():
 
         "reloading_required": reloading_required,
         "reloading_count": reloading_count_raw,
-        "reloading_places": reloading_places_list,  # for template rendering
+        "reloading_places": reloading_places_list,
 
         "commodity": commodity,
         "weight_choice": weight_choice,
@@ -1069,16 +1051,12 @@ def submit():
         "shipment_type": shipment_type,
     }
 
-    # -------------------------
-    # ROUTE MATCHING
-    # -------------------------
     matched_routes, best_route_id = get_matching_routes(
         pol=shipping_from_1,
         pod=destination_1,
         transit_borders=transit_borders
     )
 
-    # If user clicked NEXT:
     if action == "next":
         return render_template(
             "form.html",
@@ -1105,9 +1083,6 @@ def submit():
             error_msg=None
         )
 
-    # -------------------------
-    # GENERATE step
-    # -------------------------
     selected_route_id = request.form.get("selected_route_id", "").strip()
     own_route_text = request.form.get("own_route_text", "").strip()
 
@@ -1149,7 +1124,6 @@ def submit():
         else:
             route_error_msg = "No routes found for now. Please choose 'My own route' and type your route."
 
-    # Validate mandatory dynamic fields
     ct = canon(container_type)
     is_open_or_flat = ("open top" in ct) or ("flat rack" in ct)
     is_reefer = ("reefer" in ct)
@@ -1161,7 +1135,6 @@ def submit():
         if not temperature_c:
             route_error_msg = route_error_msg or "Temperature is required for Reefer."
 
-    # Save query data (even if route error exists, we keep behavior consistent? -> only save when valid)
     data: Dict[str, Any] = {
         "quote_id": f"QUOTE-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
         "company_name": company_name,
@@ -1225,12 +1198,7 @@ def submit():
         "timestamp": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
     }
 
-    rates = []
-    best_text = None
-    error_msg = None
-
     if route_error_msg:
-        # stay on route stage, keep fields filled
         return render_template(
             "form.html",
             countries=COUNTRIES,
@@ -1256,7 +1224,6 @@ def submit():
             error_msg=None
         )
 
-    # valid: save and show results; clear form after generating
     save_to_excel(data)
 
     container_size_label_for_title = container_size if container_size else ""
@@ -1281,7 +1248,7 @@ def submit():
         packaging_types=get_packaging_types(),
 
         stage="result",
-        form_data=empty_form_data(),   # <-- clears entire form (including extra POL/POD + reloadings)
+        form_data=empty_form_data(),
         submitted=True,
         submitted_items=submitted_items,
 

@@ -864,6 +864,9 @@
 </div>
 
 <script>
+    // IMPORTANT: current stage from server (input | routes | result)
+    const CURRENT_STAGE = "{{ stage }}";
+
     // ----------------------------
     // Helper parsing
     // ----------------------------
@@ -974,6 +977,14 @@
     }
 
     function buildPlacesInputs(count) {
+        // CRITICAL FIX:
+        // On routes stage we MUST NOT rebuild required inputs again,
+        // otherwise browser validation will block "Generate" and re-ask reload points.
+        if (CURRENT_STAGE === "routes") {
+            clearPlaces();
+            return;
+        }
+
         clearPlaces();
         if (!count || count < 1) return;
 
@@ -990,6 +1001,19 @@
     }
 
     function syncReloadingUI() {
+        // CRITICAL FIX:
+        // When on routes stage, do not activate reloading UI or required fields again.
+        if (CURRENT_STAGE === "routes") {
+            if (reloadingCount) {
+                reloadingCount.disabled = true;
+            }
+            if (reloadingHelp) {
+                reloadingHelp.style.display = "none";
+            }
+            clearPlaces();
+            return;
+        }
+
         if (!reloadYes || !reloadingCount || !reloadingHelp) return;
 
         const yesSelected = reloadYes.checked;
