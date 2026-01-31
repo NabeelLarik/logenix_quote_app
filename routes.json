@@ -1,0 +1,203 @@
+[
+  {
+    "id": "R1",
+    "title": "Karachi to Ashgabat via Afghanistan",
+    "pol_keywords": ["karachi", "karachi port", "khi"],
+    "pod_keywords": ["ashgabat", "turkmenistan"],
+    "path": "Karachi → Chaman Border (Pakistan/Afghanistan) → Torghundi Border (Afghanistan/Turkmenistan) → Ashgabat (Turkmenistan).",
+    "must_borders": ["chaman", "torghundi"],
+    "transit_time_days": { "min": 8, "max": 11 },
+    "route_status": "closed"
+  },
+  {
+    "id": "R2",
+    "title": "Karachi to Kabul via Chaman",
+    "pol_keywords": ["karachi", "karachi port", "khi"],
+    "pod_keywords": ["kabul", "afghanistan"],
+    "path": "Karachi → Chaman Border (Pakistan/Afghanistan) → Kabul (Afghanistan).",
+    "must_borders": ["chaman", "kabul"],
+    "transit_time_days": { "min": 5, "max": 7 },
+    "route_status": "closed"
+  },
+  {
+    "id": "R3",
+    "title": "Karachi to Kabul via Torkham",
+    "pol_keywords": ["karachi", "karachi port", "khi"],
+    "pod_keywords": ["kabul", "afghanistan"],
+    "path": "Karachi → Peshawar → Torkham Border (Pakistan/Afghanistan) → Kabul (Afghanistan).",
+    "must_borders": ["torkham", "kabul"],
+    "transit_time_days": { "min": 4, "max": 6 },
+    "route_status": "closed"
+  },
+  {
+    "id": "R4",
+    "title": "Karachi to Dushanbe via Chaman",
+    "pol_keywords": ["karachi", "karachi port"],
+    "pod_keywords": ["dushanbe", "tajikistan"],
+    "path": "Karachi → Chaman Border → Afghanistan → Dushanbe (Tajikistan).",
+    "must_borders": ["chaman", "dushanbe"],
+    "transit_time_days": { "min": 9, "max": 12 },
+    "route_status": "closed"
+  },
+  {
+    "id": "R5",
+    "title": "Karachi to Dushanbe via Torkham",
+    "pol_keywords": ["karachi", "karachi port"],
+    "pod_keywords": ["dushanbe", "tajikistan"],
+    "path": "Karachi → Peshawar → Torkham Border → Afghanistan → Dushanbe (Tajikistan).",
+    "must_borders": ["torkham", "dushanbe"],
+    "transit_time_days": { "min": 8, "max": 11 },
+    "route_status": "closed"
+  },
+  {
+    "id": "R6",
+    "title": "Karachi to Uzbekistan via Hairatan",
+    "pol_keywords": ["karachi", "karachi port"],
+    "pod_keywords": ["uzbekistan", "tashkent", "jizzakh", "dekhkanabad"],
+    "path": "Karachi → Chaman Border → Afghanistan → Hairatan Border → Uzbekistan.",
+    "must_borders": ["chaman", "hairatan"],
+    "transit_time_days": { "min": 9, "max": 13 },
+    "route_status": "closed"
+  },
+  {
+    "id": "R7",
+    "title": "Karachi to Uzbekistan via Torkham",
+    "pol_keywords": ["karachi", "karachi port"],
+    "pod_keywords": ["uzbekistan", "tashkent", "jizzakh", "dekhkanabad"],
+    "path": "Karachi → Peshawar → Torkham Border → Afghanistan → Hairatan Border → Uzbekistan.",
+    "must_borders": ["torkham", "hairatan"],
+    "transit_time_days": { "min": 8, "max": 12 },
+    "route_status": "closed"
+  },
+  {
+    "id": "R8",
+    "title": "Karachi to Almaty via Uzbekistan",
+    "pol_keywords": ["karachi", "karachi port"],
+    "pod_keywords": ["almaty", "kazakhstan"],
+    "path": "Karachi → Chaman → Hairatan → Tashkent → Almaty.",
+    "must_borders": ["chaman", "hairatan", "tashkent", "almaty"],
+    "transit_time_days": { "min": 11, "max": 15 },
+    "route_status": "closed"
+  },
+  {
+    "id": "R9",
+    "title": "Karachi to Almaty via Torkham",
+    "pol_keywords": ["karachi", "karachi port"],
+    "pod_keywords": ["almaty", "kazakhstan"],
+    "path": "Karachi → Peshawar → Torkham → Hairatan → Tashkent → Almaty.",
+    "must_borders": ["torkham", "hairatan", "tashkent", "almaty"],
+    "transit_time_days": { "min": 10, "max": 14 },
+    "route_status": "closed"
+  },
+  {
+    "id": "R10",
+    "title": "Karachi to Tashkent via Afghanistan",
+    "pol_keywords": ["karachi", "karachi port"],
+    "pod_keywords": ["tashkent", "uzbekistan"],
+    "path": "Karachi → Peshawar → Torkham → Kabul → Mazar-e-Sharif → Hairatan → Termez → Tashkent.",
+    "must_borders": ["torkham", "hairatan", "termez", "tashkent"],
+    "transit_time_days": { "min": 10, "max": 12 },
+    "route_status": "closed"
+  },
+  {
+    "id": "R11",
+    "title": "Karachi to Almaty via Shymkent",
+    "pol_keywords": ["karachi", "karachi port"],
+    "pod_keywords": ["almaty", "kazakhstan"],
+    "path": "Karachi → Peshawar → Torkham → Hairatan → Termez → Shymkent → Almaty.",
+    "must_borders": ["torkham", "hairatan", "shymkent", "almaty"],
+    "transit_time_days": { "min": 11, "max": 14 },
+    "route_status": "closed"
+  },
+  {
+    "id": "R12",
+    "title": "Karachi to Tashkent via Iran",
+    "pol_keywords": ["karachi", "gwadar"],
+    "pod_keywords": ["tashkent", "uzbekistan"],
+    "path": "Karachi → Gwadar → Bandar Abbas → Mashhad → Sarakhs → Mary → Bukhara → Tashkent.",
+    "must_borders": ["bandar abbas", "sarakhs", "bukhara", "tashkent"],
+    "transit_time_days": { "min": 14, "max": 18 },
+    "route_status": "closed"
+  },
+
+  {
+    "id": "R13",
+    "title": "Karachi to Almaty via Caspian Sea",
+    "pol_keywords": ["karachi", "gwadar"],
+    "pod_keywords": ["almaty", "kazakhstan"],
+    "path": "Karachi → Gwadar → Bandar Abbas → Tehran → Bandar Anzali → Caspian Sea → Aktau → Almaty.",
+    "must_borders": ["bandar abbas", "bandar anzali", "aktau", "almaty"],
+    "transit_time_days": { "min": 18, "max": 22 },
+    "route_status": "open"
+  },
+  {
+    "id": "R14",
+    "title": "Karachi to Dushanbe via Sher Khan Bandar",
+    "pol_keywords": ["karachi"],
+    "pod_keywords": ["dushanbe", "tajikistan"],
+    "path": "Karachi → Peshawar → Torkham → Kabul → Kunduz → Sher Khan Bandar → Dushanbe.",
+    "must_borders": ["torkham", "sher khan bandar", "dushanbe"],
+    "transit_time_days": { "min": 9, "max": 11 },
+    "route_status": "open"
+  },
+  {
+    "id": "R15",
+    "title": "Karachi to Bishkek via China",
+    "pol_keywords": ["karachi"],
+    "pod_keywords": ["bishkek", "kyrgyzstan"],
+    "path": "Karachi → Gilgit → Khunjerab Pass → Kashgar → Irkeshtam Pass → Osh → Bishkek.",
+    "must_borders": ["khunjerab", "irkeshtam", "osh", "bishkek"],
+    "transit_time_days": { "min": 12, "max": 16 },
+    "route_status": "open"
+  },
+  {
+    "id": "R16",
+    "title": "Jebel Ali to Almaty via Iran",
+    "pol_keywords": ["jebel ali", "dubai", "uae"],
+    "pod_keywords": ["almaty", "kazakhstan"],
+    "path": "Jebel Ali → Bandar Abbas → Tehran → Sarakhs → Ashgabat → Aktau → Almaty.",
+    "must_borders": ["bandar abbas", "sarakhs", "aktau", "almaty"],
+    "transit_time_days": { "min": 16, "max": 20 },
+    "route_status": "open"
+  },
+  {
+    "id": "R17",
+    "title": "Jebel Ali to Tashkent via Iran",
+    "pol_keywords": ["jebel ali", "dubai", "uae"],
+    "pod_keywords": ["tashkent", "uzbekistan"],
+    "path": "Jebel Ali → Bandar Abbas → Mashhad → Sarakhs → Mary → Bukhara → Tashkent.",
+    "must_borders": ["bandar abbas", "sarakhs", "bukhara", "tashkent"],
+    "transit_time_days": { "min": 14, "max": 18 },
+    "route_status": "open"
+  },
+  {
+    "id": "R18",
+    "title": "Poti Port to Almaty",
+    "pol_keywords": ["poti port", "georgia"],
+    "pod_keywords": ["almaty", "kazakhstan"],
+    "path": "Poti Port → Tbilisi → Red Bridge → Baku → Caspian Sea → Aktau → Almaty.",
+    "must_borders": ["red bridge", "baku", "aktau", "almaty"],
+    "transit_time_days": { "min": 15, "max": 19 },
+    "route_status": "open"
+  },
+  {
+    "id": "R19",
+    "title": "Poti Port to Tashkent",
+    "pol_keywords": ["poti port", "batumi"],
+    "pod_keywords": ["tashkent", "uzbekistan"],
+    "path": "Poti → Tbilisi → Baku → Caspian Sea → Turkmenbashi → Bukhara → Tashkent.",
+    "must_borders": ["baku", "turkmenbashi", "bukhara", "tashkent"],
+    "transit_time_days": { "min": 16, "max": 21 },
+    "route_status": "open"
+  },
+  {
+    "id": "R20",
+    "title": "Batumi to Ashgabat",
+    "pol_keywords": ["batumi", "poti port"],
+    "pod_keywords": ["ashgabat", "turkmenistan"],
+    "path": "Batumi → Tbilisi → Baku → Caspian Sea → Turkmenbashi → Ashgabat.",
+    "must_borders": ["baku", "turkmenbashi", "ashgabat"],
+    "transit_time_days": { "min": 14, "max": 18 },
+    "route_status": "open"
+  }
+]

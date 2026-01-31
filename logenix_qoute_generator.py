@@ -4,6 +4,7 @@ from flask import Flask, request, render_template
 import pandas as pd
 import os
 import re
+import json
 from datetime import datetime, date
 from typing import Optional, Tuple, List, Dict, Any
 
@@ -12,86 +13,9 @@ app = Flask(__name__)
 EXCEL_FILE = "queries.xlsx"
 PRICES_FILE = "prices_updated.xlsx"
 ROUTES_HISTORY_FILE = "routes_history.xlsx"
+ROUTES_JSON_FILE = "routes.json"
+
 SHOW_LIMIT = 4  # max 4 quote boxes
-
-
-# -------------------------
-# ROUTES (PREDEFINED)
-# -------------------------
-ROUTES = [
-    {
-        "id": "R1",
-        "title": "Route 1",
-        "pol_keywords": ["karachi", "karachi port"],
-        "pod_keywords": ["ashgabat", "turkmenistan"],
-        "path": "Karachi → Chaman Border (Pakistan/Afghanistan) → Torghundi Border (Afghanistan/Turkmenistan) → Ashgabat (Turkmenistan).",
-        "must_borders": ["chaman", "torghundi"],
-    },
-    {
-        "id": "R2",
-        "title": "Route 2",
-        "pol_keywords": ["karachi", "karachi port"],
-        "pod_keywords": ["kabul", "afghanistan"],
-        "path": "Karachi → Chaman Border (Pakistan/Afghanistan) → Kabul (Afghanistan).",
-        "must_borders": ["chaman", "kabul"],
-    },
-    {
-        "id": "R3",
-        "title": "Route 3",
-        "pol_keywords": ["karachi", "karachi port"],
-        "pod_keywords": ["kabul", "afghanistan"],
-        "path": "Karachi → Peshawar → Torkham Border (Pakistan/Afghanistan) → Kabul (Afghanistan).",
-        "must_borders": ["torkham", "kabul"],
-    },
-    {
-        "id": "R4",
-        "title": "Route 4",
-        "pol_keywords": ["karachi", "karachi port"],
-        "pod_keywords": ["dushanbe", "dushambe", "tajikistan"],
-        "path": "Karachi → Chaman Border (Pakistan/Afghanistan) → Dushanbe (Tajikistan).",
-        "must_borders": ["chaman", "dushanbe"],
-    },
-    {
-        "id": "R5",
-        "title": "Route 5",
-        "pol_keywords": ["karachi", "karachi port"],
-        "pod_keywords": ["dushanbe", "dushambe", "tajikistan"],
-        "path": "Karachi → Peshawar → Torkham Border (Pakistan/Afghanistan) → Dushanbe (Tajikistan).",
-        "must_borders": ["torkham", "dushanbe"],
-    },
-    {
-        "id": "R6",
-        "title": "Route 6",
-        "pol_keywords": ["karachi", "karachi port"],
-        "pod_keywords": ["uzbekistan"],
-        "path": "Karachi → Chaman Border (Pakistan/Afghanistan) → Hairatan Border (Afghanistan/Uzbekistan) → Any city in Uzbekistan.",
-        "must_borders": ["chaman", "hairatan"],
-    },
-    {
-        "id": "R7",
-        "title": "Route 7",
-        "pol_keywords": ["karachi", "karachi port"],
-        "pod_keywords": ["uzbekistan"],
-        "path": "Karachi → Peshawar → Torkham Border (Pakistan/Afghanistan) → Hairatan Border (Afghanistan/Uzbekistan) → Any city in Uzbekistan.",
-        "must_borders": ["torkham", "hairatan"],
-    },
-    {
-        "id": "R8",
-        "title": "Route 8",
-        "pol_keywords": ["karachi", "karachi port"],
-        "pod_keywords": ["almaty", "kazakhstan"],
-        "path": "Karachi → Chaman Border (Pakistan/Afghanistan) → Hairatan Border (Afghanistan/Uzbekistan) → Tashkent Border (Uzbekistan/Kazakhstan) → Almaty (Kazakhstan).",
-        "must_borders": ["chaman", "hairatan", "tashkent", "almaty"],
-    },
-    {
-        "id": "R9",
-        "title": "Route 9",
-        "pol_keywords": ["karachi", "karachi port"],
-        "pod_keywords": ["almaty", "kazakhstan"],
-        "path": "Karachi → Peshawar → Torkham Border (Pakistan/Afghanistan) → Hairatan Border (Afghanistan/Uzbekistan) → Tashkent Border (Uzbekistan/Kazakhstan) → Almaty (Kazakhstan).",
-        "must_borders": ["torkham", "hairatan", "tashkent", "almaty"],
-    },
-]
 
 
 # -------------------------
@@ -162,9 +86,6 @@ COUNTRIES = [
     "Herat customs",
     "LYG/Qingdao Port",
     "Tbilisi Port",
-    "Karachi/Mersin/Poti Port",
-    "Towrgondi",
-    "Poti Port",
     "Karachi/Chittagong/Nava Sheva Port",
     "Bandar Abbas/LYG/Qingdao port",
     "Dar es Salaam/Mombasa port",
@@ -210,7 +131,6 @@ CONTAINER_TYPES = [
     "Insulated Container",
 ]
 
-# Only 2 options per your requirement (but user can still type)
 CONTAINER_SIZES = [
     "20ft",
     "40ft",
@@ -317,7 +237,6 @@ def parse_percent_to_float(text: str):
 
 
 def clean_container_size_label(val: str) -> str:
-    """Convert any input into clean format (20ft, 40ft) if possible."""
     s = canon(val)
     if not s:
         return ""
@@ -329,10 +248,6 @@ def clean_container_size_label(val: str) -> str:
 
 
 def reverse_path(path: str) -> str:
-    """
-    Reverse a route path string like 'A → B → C.'
-    Keep punctuation reasonable.
-    """
     if not path:
         return ""
     parts = [p.strip() for p in path.split("→")]
@@ -340,9 +255,92 @@ def reverse_path(path: str) -> str:
     if len(parts) <= 1:
         return path
     parts.reverse()
-    joined = " → ".join(parts)
-    return joined
+    return " → ".join(parts)
 
+
+# -------------------------
+# ROUTES (load from routes.json)
+# -------------------------
+def load_routes_json() -> List[Dict[str, Any]]:
+    if not os.path.exists(ROUTES_JSON_FILE):
+        return []
+    try:
+        with open(ROUTES_JSON_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, list):
+            out: List[Dict[str, Any]] = []
+            for r in data:
+                if isinstance(r, dict) and r.get("id"):
+                    out.append(r)
+            return out
+        return []
+    except Exception:
+        return []
+
+
+def route_base_match(pol: str, pod: str, route: dict) -> Tuple[bool, bool]:
+    """
+    Match ONLY on POL/POD keywords.
+    Reverse support kept.
+    """
+    pol_s = canon(pol)
+    pod_s = canon(pod)
+
+    pol_ok = any(canon(k) and canon(k) in pol_s for k in route.get("pol_keywords", []))
+    pod_ok = any(canon(k) and canon(k) in pod_s for k in route.get("pod_keywords", []))
+    if pol_ok and pod_ok:
+        return True, False
+
+    pol_ok_rev = any(canon(k) and canon(k) in pod_s for k in route.get("pol_keywords", []))
+    pod_ok_rev = any(canon(k) and canon(k) in pol_s for k in route.get("pod_keywords", []))
+    if pol_ok_rev and pod_ok_rev:
+        return True, True
+
+    return False, False
+
+
+def transit_time_key(route: Dict[str, Any]) -> Tuple[int, int]:
+    tt = route.get("transit_time_days") or {}
+
+    def safe_int(v: Any) -> int:
+        if v is None or (isinstance(v, float) and pd.isna(v)):
+            return 10**9
+        try:
+            return int(v)
+        except Exception:
+            try:
+                return int(str(v).strip())
+            except Exception:
+                return 10**9
+
+    mn = safe_int(tt.get("min"))
+    mx = safe_int(tt.get("max"))
+    return (mn, mx)
+
+def get_matching_routes(pol: str, pod: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+    routes_src = load_routes_json()
+    matched: List[Dict[str, Any]] = []
+
+    for r in routes_src:
+        ok, is_reverse = route_base_match(pol, pod, r)
+        if not ok:
+            continue
+
+        rr = dict(r)
+        rr["is_recent"] = False
+        rr["is_custom"] = False
+        rr["is_reverse"] = bool(is_reverse)
+        rr["path"] = reverse_path(rr.get("path", "")) if is_reverse else rr.get("path", "")
+        rr["route_status"] = (rr.get("route_status") or "open").strip().lower()
+        rr["_tt_key"] = transit_time_key(rr)
+        matched.append(rr)
+
+    if not matched:
+        return [], None
+
+    matched.sort(key=lambda x: x.get("_tt_key", (10**9, 10**9)))
+    best_id = matched[0].get("id")
+    return matched, best_id
 
 # -------------------------
 # ROUTE HISTORY (CUSTOM ROUTES)
@@ -423,107 +421,12 @@ def get_recent_routes(pol: str, pod: str, limit: int = 5) -> List[Dict[str, Any]
             "path": str(row.get("route_text", "")).strip(),
             "is_recent": True,
             "is_custom": True,
+            "is_reverse": False,
+            "route_status": "open",
+            "transit_time_days": None,
+            "_tt_key": (10**9, 10**9)
         })
     return out
-
-
-# -------------------------
-# ROUTE MATCHING + BEST ROUTE SUGGESTION
-# (supports reverse POL/POD)
-# -------------------------
-def route_base_match(pol: str, pod: str, route: dict) -> Tuple[bool, bool]:
-    """
-    Returns (match, is_reverse)
-    """
-    pol_s = canon(pol)
-    pod_s = canon(pod)
-
-    pol_ok = any(k in pol_s for k in route.get("pol_keywords", []))
-    pod_ok = any(k in pod_s for k in route.get("pod_keywords", []))
-    if pol_ok and pod_ok:
-        return True, False
-
-    # reverse support
-    pol_ok_rev = any(k in pod_s for k in route.get("pol_keywords", []))
-    pod_ok_rev = any(k in pol_s for k in route.get("pod_keywords", []))
-    if pol_ok_rev and pod_ok_rev:
-        return True, True
-
-    return False, False
-
-
-def route_score(pol: str, pod: str, transit_borders: List[str], route: dict, is_reverse: bool) -> int:
-    if True:
-        ok, _ = route_base_match(pol, pod, route)
-        if not ok:
-            return 0
-
-        score = 5
-        path = canon(route.get("path", ""))
-
-        tb = [canon(x) for x in transit_borders if canon(x)]
-        if len(tb) >= 1 and tb[0] and tb[0] in path:
-            score += 4
-        if len(tb) >= 2 and tb[1] and tb[1] in path:
-            score += 4
-        if len(tb) >= 3 and tb[2] and tb[2] in path:
-            score += 2
-        if len(tb) >= 4 and tb[3] and tb[3] in path:
-            score += 2
-
-        musts = [canon(x) for x in route.get("must_borders", [])]
-        if musts:
-            hits = 0
-            for m in musts:
-                if not m:
-                    continue
-                for user_b in tb:
-                    if m in user_b:
-                        hits += 1
-                        break
-            if hits >= 2:
-                score += 2
-
-        return score
-
-
-def get_matching_routes(pol: str, pod: str, transit_borders: List[str]) -> Tuple[List[Dict[str, Any]], Optional[str]]:
-    recent = get_recent_routes(pol, pod, limit=5)
-
-    matched: List[Dict[str, Any]] = []
-
-    for r in ROUTES:
-        ok, is_reverse = route_base_match(pol, pod, r)
-        if ok:
-            rr = dict(r)
-            rr["is_recent"] = False
-            rr["is_custom"] = False
-            rr["is_reverse"] = bool(is_reverse)
-            rr["path"] = reverse_path(rr["path"]) if is_reverse else rr["path"]
-            rr["score"] = route_score(pol, pod, transit_borders, r, is_reverse)
-            matched.append(rr)
-
-    for rr in recent:
-        path = canon(rr.get("path", ""))
-        tb = [canon(x) for x in transit_borders if canon(x)]
-        score = 1
-        if len(tb) >= 1 and tb[0] and tb[0] in path:
-            score += 4
-        if len(tb) >= 2 and tb[1] and tb[1] in path:
-            score += 4
-        if len(tb) >= 3 and tb[2] and tb[2] in path:
-            score += 2
-        if len(tb) >= 4 and tb[3] and tb[3] in path:
-            score += 2
-        rr["score"] = score
-        matched.append(rr)
-
-    if not matched:
-        return [], None
-
-    matched.sort(key=lambda x: x.get("score", 0), reverse=True)
-    best_id = matched[0].get("id")
-    return matched, best_id
 
 
 # -------------------------
@@ -636,11 +539,11 @@ def compute_grand_total(row: pd.Series, columns: List[str]) -> Tuple[float, bool
     return float(total), bool(found_any)
 
 
-def compute_grand_totals_for_df(df: pd.DataFrame, display_cols: List[str]) -> Tuple[List[float], List[bool]]:
+def compute_grand_totals_for_df(df: pd.DataFrame, columns: List[str]) -> Tuple[List[float], List[bool]]:
     totals: List[float] = []
     has_any: List[bool] = []
     for _, row in df.iterrows():
-        t, ok = compute_grand_total(row, display_cols)
+        t, ok = compute_grand_total(row, columns)
         totals.append(float(t))
         has_any.append(bool(ok))
     return totals, has_any
@@ -648,7 +551,6 @@ def compute_grand_totals_for_df(df: pd.DataFrame, display_cols: List[str]) -> Tu
 
 # -------------------------
 # QUOTE SEARCH
-# (title format updated: "20ft Shipping from POL to POD")
 # -------------------------
 def get_strict_quotes(origin, destination, commodity, container_size_label: str, limit=4):
     df = load_prices_df()
@@ -701,8 +603,7 @@ def get_strict_quotes(origin, destination, commodity, container_size_label: str,
         best_idx = df_match.index[0]
 
     results = []
-    csl = container_size_label if container_size_label else ""
-    csl = csl.strip()
+    csl = (container_size_label or "").strip()
 
     for idx, row in df_match.iterrows():
         vd = row.get("_validity_date")
@@ -751,7 +652,8 @@ def get_strict_quotes(origin, destination, commodity, container_size_label: str,
 
         pol_disp = str(row.get("POL", "")).strip()
         pod_disp = str(row.get("POD", "")).strip()
-        title = f"{csl + ' ' if csl else ''}Shipping from {pol_disp} to {pod_disp}"
+        title_prefix = f"{csl} " if csl else ""
+        title = f"{title_prefix}Shipping from {pol_disp} to {pod_disp}"
 
         results.append({
             "is_best": (idx == best_idx),
@@ -769,9 +671,6 @@ def get_strict_quotes(origin, destination, commodity, container_size_label: str,
 # TEMPLATE HELPERS
 # -------------------------
 def build_display_items_for_submitted(data: Dict[str, Any]) -> List[Dict[str, str]]:
-    """
-    Only show fields that have a real value (not empty, not 0 for optional fields unless meaningful).
-    """
     items: List[Dict[str, str]] = []
 
     def add(label: str, key: str):
@@ -787,17 +686,48 @@ def build_display_items_for_submitted(data: Dict[str, Any]) -> List[Dict[str, st
     add("Company", "company_name")
     add("Salesperson Name", "salesperson_name")
     add("Container Ownership", "container_ownership")
-    add("Incoterm", "incoterm")
+    add("Incoterm for Origin", "incoterm_origin")
+    add("Incoterm for Destination", "incoterm_destination")
 
-    add("Pick Up Point (POL 1)", "shipping_from_1")
-    add("Pick Up Point (POL 2)", "shipping_from_2")
-    add("Pick Up Point (POL 3)", "shipping_from_3")
-    add("Pick Up Point (POL 4)", "shipping_from_4")
+    add("Pick Up Point 1 - Factory / Warehouse address", "shipping_from_1_address")
+    add("Pick Up Point 1 - Port of Loading", "shipping_from_1_port")
+    add("Pick Up Point 1 - City", "shipping_from_1_city")
+    add("Pick Up Point 1 - Country", "shipping_from_1_country")
 
-    add("Point of Delivery (POD 1)", "destination_1")
-    add("Point of Delivery (POD 2)", "destination_2")
-    add("Point of Delivery (POD 3)", "destination_3")
-    add("Point of Delivery (POD 4)", "destination_4")
+    add("Pick Up Point 2 - Factory / Warehouse address", "shipping_from_2_address")
+    add("Pick Up Point 2 - Port of Loading", "shipping_from_2_port")
+    add("Pick Up Point 2 - City", "shipping_from_2_city")
+    add("Pick Up Point 2 - Country", "shipping_from_2_country")
+
+    add("Pick Up Point 3 - Factory / Warehouse address", "shipping_from_3_address")
+    add("Pick Up Point 3 - Port of Loading", "shipping_from_3_port")
+    add("Pick Up Point 3 - City", "shipping_from_3_city")
+    add("Pick Up Point 3 - Country", "shipping_from_3_country")
+
+    add("Pick Up Point 4 - Factory / Warehouse address", "shipping_from_4_address")
+    add("Pick Up Point 4 - Port of Loading", "shipping_from_4_port")
+    add("Pick Up Point 4 - City", "shipping_from_4_city")
+    add("Pick Up Point 4 - Country", "shipping_from_4_country")
+
+    add("Delivery Point 1 - Factory / Warehouse address", "destination_1_address")
+    add("Delivery Point 1 - Port of Loading", "destination_1_port")
+    add("Delivery Point 1 - City", "destination_1_city")
+    add("Delivery Point 1 - Country", "destination_1_country")
+
+    add("Delivery Point 2 - Factory / Warehouse address", "destination_2_address")
+    add("Delivery Point 2 - Port of Loading", "destination_2_port")
+    add("Delivery Point 2 - City", "destination_2_city")
+    add("Delivery Point 2 - Country", "destination_2_country")
+
+    add("Delivery Point 3 - Factory / Warehouse address", "destination_3_address")
+    add("Delivery Point 3 - Port of Loading", "destination_3_port")
+    add("Delivery Point 3 - City", "destination_3_city")
+    add("Delivery Point 3 - Country", "destination_3_country")
+
+    add("Delivery Point 4 - Factory / Warehouse address", "destination_4_address")
+    add("Delivery Point 4 - Port of Loading", "destination_4_port")
+    add("Delivery Point 4 - City", "destination_4_city")
+    add("Delivery Point 4 - Country", "destination_4_country")
 
     add("Transit Border 1", "transit_border_1")
     add("Transit Border 2", "transit_border_2")
@@ -806,6 +736,8 @@ def build_display_items_for_submitted(data: Dict[str, Any]) -> List[Dict[str, st
 
     add("Selected Route ID", "selected_route_id")
     add("Selected Route", "selected_route_text")
+    add("Route Status", "selected_route_status")
+    add("Transit Time (Days)", "selected_route_transit_days")
     add("Custom Route", "custom_route_text")
 
     add("Cargo Type", "cargo_type")
@@ -821,11 +753,14 @@ def build_display_items_for_submitted(data: Dict[str, Any]) -> List[Dict[str, st
     add("Reloading Places", "reloading_places")
 
     add("Commodity", "commodity")
+    add("CBM", "cbm")
     add("Weight", "weight_tons")
 
     add("Type of Container", "container_type")
-    add("Container Size", "container_size")
-    add("Number of Containers", "num_containers")
+    add("Container Size Summary", "container_size")
+    add("Total Number of Containers", "num_containers")
+    add("20ft Containers", "size_20ft_count")
+    add("40ft Containers", "size_40ft_count")
 
     add("Width (ft)", "width_ft")
     add("Height (ft)", "height_ft")
@@ -847,7 +782,6 @@ def build_display_items_for_submitted(data: Dict[str, Any]) -> List[Dict[str, st
 
 
 def empty_form_data() -> Dict[str, Any]:
-    """Empty object for template prefill."""
     return {}
 
 
@@ -866,7 +800,7 @@ def index():
         container_sizes=CONTAINER_SIZES,
         packaging_types=get_packaging_types(),
 
-        stage="input",             # input | routes | result
+        stage="input",
         form_data=empty_form_data(),
         submitted=False,
         submitted_items=[],
@@ -886,19 +820,41 @@ def index():
 def submit():
     action = request.form.get("_action", "next").strip().lower()
 
-    pols = []
-    pods = []
+    # -------------------------
+    # read POL/POD (up to 4 each)
+    # -------------------------
+    # -------------------------
+    # read Pick Up / Delivery Point Details (up to 4 each)
+    # Match routes ONLY on City (POL city vs POD city)
+    # -------------------------
+    pols: List[Dict[str, str]] = []
+    pods: List[Dict[str, str]] = []
+
     for i in range(1, 5):
-        pols.append(request.form.get(f"shipping_from_{i}", "").strip())
-        pods.append(request.form.get(f"destination_{i}", "").strip())
+        pols.append({
+            "address": request.form.get(f"shipping_from_{i}_address", "").strip(),
+            "port": request.form.get(f"shipping_from_{i}_port", "").strip(),
+            "city": request.form.get(f"shipping_from_{i}_city", "").strip(),
+            "country": request.form.get(f"shipping_from_{i}_country", "").strip(),
+        })
+        pods.append({
+            "address": request.form.get(f"destination_{i}_address", "").strip(),
+            "port": request.form.get(f"destination_{i}_port", "").strip(),
+            "city": request.form.get(f"destination_{i}_city", "").strip(),
+            "country": request.form.get(f"destination_{i}_country", "").strip(),
+        })
 
-    shipping_from_1 = pols[0] if len(pols) > 0 else ""
-    destination_1 = pods[0] if len(pods) > 0 else ""
+    shipping_from_1_city = pols[0]["city"] if len(pols) > 0 else ""
+    destination_1_city = pods[0]["city"] if len(pods) > 0 else ""
 
+    # -------------------------
+    # Basic fields
+    # -------------------------
     company_name = request.form.get("company_name", "").strip()
     salesperson_name = request.form.get("salesperson_name", "").strip()
     container_ownership = request.form.get("container_ownership", "").strip()
-    incoterm = request.form.get("incoterm", "").strip()
+    incoterm_origin = request.form.get("incoterm_origin", "").strip()
+    incoterm_destination = request.form.get("incoterm_destination", "").strip()
 
     shipment_type = request.form.get("shipment_type", "").strip()
 
@@ -906,11 +862,11 @@ def submit():
     offloading_responsible = request.form.get("offloading_responsible", "").strip()
     final_customs_responsible = request.form.get("final_customs_responsible", "").strip()
 
+    # Transit borders (OPTIONAL)
     transit_border_1 = request.form.get("transit_border_1", "").strip()
     transit_border_2 = request.form.get("transit_border_2", "").strip()
     transit_border_3 = request.form.get("transit_border_3", "").strip()
     transit_border_4 = request.form.get("transit_border_4", "").strip()
-    transit_borders = [transit_border_1, transit_border_2, transit_border_3, transit_border_4]
 
     cargo_type = request.form.get("cargo_type", "").strip()
     packaging_type = request.form.get("packaging_type", "").strip()
@@ -921,6 +877,7 @@ def submit():
     except Exception:
         free_days_return = ""
 
+    # Reloading
     reloading_required = request.form.get("reloading_required", "").strip()
     reloading_count_raw = request.form.get("reloading_count", "").strip()
 
@@ -945,6 +902,7 @@ def submit():
 
     reloading_places = "; ".join(reloading_places_list)
 
+    # Weight
     weight_choice = request.form.get("weight_choice", "").strip()
     weight_other = request.form.get("weight_other", "").strip()
     if weight_choice == "Other":
@@ -952,21 +910,51 @@ def submit():
     else:
         weight_final = weight_choice
 
+    # Container fields
     container_type = request.form.get("container_type", "").strip()
-    container_size_raw = request.form.get("container_size", "").strip()
-    container_size = clean_container_size_label(container_size_raw)
 
-    num_containers_raw = request.form.get("num_containers", "").strip()
-    try:
-        num_containers = int(num_containers_raw)
-    except Exception:
-        num_containers = ""
+    size_20ft_selected = request.form.get("size_20ft_selected", "").strip().lower()
+    size_40ft_selected = request.form.get("size_40ft_selected", "").strip().lower()
 
+    size_20ft_count_raw = request.form.get("size_20ft_count", "").strip()
+    size_40ft_count_raw = request.form.get("size_40ft_count", "").strip()
+
+    def to_int_or_zero(x: str) -> int:
+        try:
+            v = int(x)
+            return v if v > 0 else 0
+        except Exception:
+            return 0
+
+    size_20ft_count = to_int_or_zero(size_20ft_count_raw)
+    size_40ft_count = to_int_or_zero(size_40ft_count_raw)
+
+    total_containers = size_20ft_count + size_40ft_count
+
+    size_labels: List[str] = []
+    if size_20ft_count > 0:
+        size_labels.append("20ft")
+    if size_40ft_count > 0:
+        size_labels.append("40ft")
+    container_size_summary = " & ".join(size_labels) if size_labels else ""
+
+    num_containers = total_containers
+
+    # Dimensions / Temperature
     width_ft = request.form.get("width_ft", "").strip()
     height_ft = request.form.get("height_ft", "").strip()
     temperature_c = request.form.get("temperature_c", "").strip()
 
+    # Commodity and costs
     commodity = request.form.get("commodity", "").strip()
+        # CBM (Cubic Meter) - single package CBM
+    cbm_raw = request.form.get("cbm", "").strip()
+    cbm_value: Any = ""
+    if cbm_raw:
+        try:
+            cbm_value = float(cbm_raw)
+        except Exception:
+            cbm_value = cbm_raw  # keep raw if user typed something unexpected
 
     cargo_value_raw = request.form.get("cargo_value", "").strip()
     cargo_value_num = parse_price_to_float(cargo_value_raw)
@@ -995,21 +983,55 @@ def submit():
         reason = request.form.get("reason", "").strip()
         special_cost = request.form.get("special_cost", "").strip()
 
+    # -------------------------
+    # build form_data for repopulation
+    # -------------------------
     form_data: Dict[str, Any] = {
         "company_name": company_name,
         "salesperson_name": salesperson_name,
         "container_ownership": container_ownership,
-        "incoterm": incoterm,
+        "incoterm_origin": incoterm_origin,
+        "incoterm_destination": incoterm_destination,
 
-        "shipping_from_1": pols[0],
-        "shipping_from_2": pols[1],
-        "shipping_from_3": pols[2],
-        "shipping_from_4": pols[3],
+        "shipping_from_1_address": pols[0]["address"],
+        "shipping_from_1_port": pols[0]["port"],
+        "shipping_from_1_city": pols[0]["city"],
+        "shipping_from_1_country": pols[0]["country"],
 
-        "destination_1": pods[0],
-        "destination_2": pods[1],
-        "destination_3": pods[2],
-        "destination_4": pods[3],
+        "shipping_from_2_address": pols[1]["address"],
+        "shipping_from_2_port": pols[1]["port"],
+        "shipping_from_2_city": pols[1]["city"],
+        "shipping_from_2_country": pols[1]["country"],
+
+        "shipping_from_3_address": pols[2]["address"],
+        "shipping_from_3_port": pols[2]["port"],
+        "shipping_from_3_city": pols[2]["city"],
+        "shipping_from_3_country": pols[2]["country"],
+
+        "shipping_from_4_address": pols[3]["address"],
+        "shipping_from_4_port": pols[3]["port"],
+        "shipping_from_4_city": pols[3]["city"],
+        "shipping_from_4_country": pols[3]["country"],
+
+        "destination_1_address": pods[0]["address"],
+        "destination_1_port": pods[0]["port"],
+        "destination_1_city": pods[0]["city"],
+        "destination_1_country": pods[0]["country"],
+
+        "destination_2_address": pods[1]["address"],
+        "destination_2_port": pods[1]["port"],
+        "destination_2_city": pods[1]["city"],
+        "destination_2_country": pods[1]["country"],
+
+        "destination_3_address": pods[2]["address"],
+        "destination_3_port": pods[2]["port"],
+        "destination_3_city": pods[2]["city"],
+        "destination_3_country": pods[2]["country"],
+
+        "destination_4_address": pods[3]["address"],
+        "destination_4_port": pods[3]["port"],
+        "destination_4_city": pods[3]["city"],
+        "destination_4_country": pods[3]["country"],
 
         "transit_border_1": transit_border_1,
         "transit_border_2": transit_border_2,
@@ -1029,12 +1051,17 @@ def submit():
         "reloading_places": reloading_places_list,
 
         "commodity": commodity,
+        "cbm": cbm_raw,
         "weight_choice": weight_choice,
         "weight_other": weight_other,
 
         "container_type": container_type,
-        "container_size": container_size_raw,
-        "num_containers": num_containers_raw,
+        "container_size": container_size_summary,
+        "num_containers": str(num_containers) if num_containers else "",
+        "size_20ft_selected": "yes" if size_20ft_selected == "yes" or size_20ft_count > 0 else "",
+        "size_20ft_count": size_20ft_count_raw,
+        "size_40ft_selected": "yes" if size_40ft_selected == "yes" or size_40ft_count > 0 else "",
+        "size_40ft_count": size_40ft_count_raw,
 
         "width_ft": width_ft,
         "height_ft": height_ft,
@@ -1051,11 +1078,21 @@ def submit():
         "shipment_type": shipment_type,
     }
 
+    # -------------------------
+    # ROUTE MATCHING (POL/POD only)
+    # -------------------------
     matched_routes, best_route_id = get_matching_routes(
-        pol=shipping_from_1,
-        pod=destination_1,
-        transit_borders=transit_borders
+        pol=shipping_from_1_city,
+        pod=destination_1_city
     )
+
+    recent_routes = get_recent_routes(shipping_from_1_city, destination_1_city, limit=5)
+    all_routes = matched_routes + recent_routes
+
+    best_route_id_all: Optional[str] = None
+    if all_routes:
+        all_routes_sorted = sorted(all_routes, key=lambda x: x.get("_tt_key", (10**9, 10**9)))
+        best_route_id_all = all_routes_sorted[0].get("id")
 
     if action == "next":
         return render_template(
@@ -1073,8 +1110,8 @@ def submit():
             submitted=False,
             submitted_items=[],
 
-            routes=matched_routes,
-            best_route_id=best_route_id,
+            routes=all_routes,
+            best_route_id=best_route_id_all,
             selected_route_id=None,
             route_error_msg=None,
 
@@ -1083,47 +1120,67 @@ def submit():
             error_msg=None
         )
 
+    # -------------------------
+    # GENERATE step
+    # -------------------------
     selected_route_id = request.form.get("selected_route_id", "").strip()
     own_route_text = request.form.get("own_route_text", "").strip()
+    confirm_closed = request.form.get("confirm_closed_route", "").strip().lower()
 
     route_error_msg = None
     selected_route_text = None
+    selected_route_status = ""
+    selected_route_transit_days = ""
 
-    if matched_routes:
+    if all_routes:
         if not selected_route_id:
             route_error_msg = "Please select one route or choose 'My own route'."
         elif selected_route_id == "OWN":
             if not own_route_text:
                 route_error_msg = "Please type your own route."
             else:
-                pol_ok = canon(shipping_from_1) in canon(own_route_text)
-                pod_ok = canon(destination_1) in canon(own_route_text)
+                pol_ok = canon(shipping_from_1_city) in canon(own_route_text)
+                pod_ok = canon(destination_1_city) in canon(own_route_text)
                 if not (pol_ok and pod_ok):
-                    route_error_msg = "Your custom route must contain Pick Up Point and Point of Delivery (POL and POD)."
+                    route_error_msg = "Your custom route must contain Pick Up City and Delivery City."
                 else:
                     selected_route_text = own_route_text.strip()
-                    save_route_history(shipping_from_1, destination_1, selected_route_text)
+                    selected_route_status = "open"
+                    selected_route_transit_days = ""
+                    save_route_history(shipping_from_1_city, destination_1_city, selected_route_text)
         else:
-            chosen = next((r for r in matched_routes if str(r.get("id")) == selected_route_id), None)
+            chosen = next((r for r in all_routes if str(r.get("id")) == selected_route_id), None)
             if not chosen:
                 route_error_msg = "Selected route not found. Please choose again."
             else:
                 selected_route_text = str(chosen.get("path", "")).strip()
+                selected_route_status = (chosen.get("route_status") or "open").strip().lower()
+                tt = chosen.get("transit_time_days") or {}
+                if isinstance(tt, dict) and tt.get("min") is not None and tt.get("max") is not None:
+                    selected_route_transit_days = f"{tt.get('min')}-{tt.get('max')}"
+                else:
+                    selected_route_transit_days = ""
+
+                if selected_route_status == "closed" and confirm_closed != "yes":
+                    route_error_msg = "Your selected route is CLOSED. Please confirm you want to proceed with a closed route."
     else:
         if selected_route_id == "OWN":
             if not own_route_text:
                 route_error_msg = "No routes found for now. Please type your own route."
             else:
-                pol_ok = canon(shipping_from_1) in canon(own_route_text)
-                pod_ok = canon(destination_1) in canon(own_route_text)
+                pol_ok = canon(shipping_from_1_city) in canon(own_route_text)
+                pod_ok = canon(destination_1_city) in canon(own_route_text)
                 if not (pol_ok and pod_ok):
                     route_error_msg = "Your custom route must contain Pick Up Point and Point of Delivery (POL and POD)."
                 else:
                     selected_route_text = own_route_text.strip()
-                    save_route_history(shipping_from_1, destination_1, selected_route_text)
+                    selected_route_status = "open"
+                    selected_route_transit_days = ""
+                    save_route_history(shipping_from_1_city, destination_1_city, selected_route_text)
         else:
             route_error_msg = "No routes found for now. Please choose 'My own route' and type your route."
 
+    # Validate mandatory dynamic fields
     ct = canon(container_type)
     is_open_or_flat = ("open top" in ct) or ("flat rack" in ct)
     is_reefer = ("reefer" in ct)
@@ -1140,17 +1197,49 @@ def submit():
         "company_name": company_name,
         "salesperson_name": salesperson_name,
         "container_ownership": container_ownership,
-        "incoterm": incoterm,
+        "incoterm_origin": incoterm_origin,
+        "incoterm_destination": incoterm_destination,
 
-        "shipping_from_1": pols[0],
-        "shipping_from_2": pols[1],
-        "shipping_from_3": pols[2],
-        "shipping_from_4": pols[3],
+        "shipping_from_1_address": pols[0]["address"],
+        "shipping_from_1_port": pols[0]["port"],
+        "shipping_from_1_city": pols[0]["city"],
+        "shipping_from_1_country": pols[0]["country"],
 
-        "destination_1": pods[0],
-        "destination_2": pods[1],
-        "destination_3": pods[2],
-        "destination_4": pods[3],
+        "shipping_from_2_address": pols[1]["address"],
+        "shipping_from_2_port": pols[1]["port"],
+        "shipping_from_2_city": pols[1]["city"],
+        "shipping_from_2_country": pols[1]["country"],
+
+        "shipping_from_3_address": pols[2]["address"],
+        "shipping_from_3_port": pols[2]["port"],
+        "shipping_from_3_city": pols[2]["city"],
+        "shipping_from_3_country": pols[2]["country"],
+
+        "shipping_from_4_address": pols[3]["address"],
+        "shipping_from_4_port": pols[3]["port"],
+        "shipping_from_4_city": pols[3]["city"],
+        "shipping_from_4_country": pols[3]["country"],
+
+        "destination_1_address": pods[0]["address"],
+        "destination_1_port": pods[0]["port"],
+        "destination_1_city": pods[0]["city"],
+        "destination_1_country": pods[0]["country"],
+
+        "destination_2_address": pods[1]["address"],
+        "destination_2_port": pods[1]["port"],
+        "destination_2_city": pods[1]["city"],
+        "destination_2_country": pods[1]["country"],
+
+        "destination_3_address": pods[2]["address"],
+        "destination_3_port": pods[2]["port"],
+        "destination_3_city": pods[2]["city"],
+        "destination_3_country": pods[2]["country"],
+
+        "destination_4_address": pods[3]["address"],
+        "destination_4_port": pods[3]["port"],
+        "destination_4_city": pods[3]["city"],
+        "destination_4_country": pods[3]["country"],
+
 
         "transit_border_1": transit_border_1,
         "transit_border_2": transit_border_2,
@@ -1159,6 +1248,8 @@ def submit():
 
         "selected_route_id": selected_route_id,
         "selected_route_text": selected_route_text if selected_route_text else "",
+        "selected_route_status": selected_route_status,
+        "selected_route_transit_days": selected_route_transit_days,
         "custom_route_text": own_route_text if selected_route_id == "OWN" else "",
 
         "cargo_type": cargo_type,
@@ -1174,11 +1265,16 @@ def submit():
         "reloading_places": reloading_places if reloading_required.lower() == "yes" else "",
 
         "commodity": commodity,
+        "cbm": cbm_value,
         "weight_tons": weight_final,
 
         "container_type": container_type,
-        "container_size": container_size,
+        "container_size": container_size_summary,
         "num_containers": num_containers,
+        "size_20ft_selected": "Yes" if size_20ft_count > 0 else "",
+        "size_20ft_count": size_20ft_count,
+        "size_40ft_selected": "Yes" if size_40ft_count > 0 else "",
+        "size_40ft_count": size_40ft_count,
 
         "width_ft": width_ft,
         "height_ft": height_ft,
@@ -1214,8 +1310,8 @@ def submit():
             submitted=False,
             submitted_items=[],
 
-            routes=matched_routes,
-            best_route_id=best_route_id,
+            routes=all_routes,
+            best_route_id=best_route_id_all,
             selected_route_id=selected_route_id if selected_route_id else None,
             route_error_msg=route_error_msg,
 
@@ -1226,15 +1322,15 @@ def submit():
 
     save_to_excel(data)
 
-    container_size_label_for_title = container_size if container_size else ""
+    container_size_label_for_title = container_size_summary if container_size_summary else ""
     rates, best_text, error_msg = get_strict_quotes(
-        origin=shipping_from_1,
-        destination=destination_1,
+        origin=shipping_from_1_city,
+        destination=destination_1_city,
         commodity=commodity,
         container_size_label=container_size_label_for_title,
         limit=SHOW_LIMIT
     )
-
+    
     submitted_items = build_display_items_for_submitted(data)
 
     return render_template(

@@ -150,6 +150,33 @@
             font-size: 12px;
         }
 
+        .badge-open {
+            background: #d1e7dd;
+            color: #0f5132;
+            font-weight: 800;
+            border-radius: 999px;
+            padding: 6px 10px;
+            font-size: 12px;
+            text-transform: uppercase;
+        }
+        .badge-closed {
+            background: #f8d7da;
+            color: #842029;
+            font-weight: 800;
+            border-radius: 999px;
+            padding: 6px 10px;
+            font-size: 12px;
+            text-transform: uppercase;
+        }
+        .badge-tt {
+            background: #e7f1ff;
+            color: #0d6efd;
+            font-weight: 800;
+            border-radius: 999px;
+            padding: 6px 10px;
+            font-size: 12px;
+        }
+
         /* Small + buttons */
         .btn-plus {
             width: 30px;
@@ -226,15 +253,15 @@
         </datalist>
 
         <form method="post" action="/submit" autocomplete="off" id="quoteForm">
-            <!-- stage action -->
             {% if stage == "routes" %}
                 <input type="hidden" name="_action" value="generate">
             {% else %}
                 <input type="hidden" name="_action" value="next">
             {% endif %}
 
+            {% if stage != "routes" %}
             <!-- =========================
-                 TOP ROW: Company + Sales
+                 INPUT STAGE (FULL FORM)
                  ========================= -->
             <div class="row g-3">
                 <div class="col-lg-6">
@@ -250,44 +277,58 @@
                            value="{{ form_data.salesperson_name if form_data and form_data.salesperson_name else '' }}">
                 </div>
 
-                <!-- Ownership + Incoterm (fills the space properly) -->
+                <!-- Container Ownership -->
                 <div class="col-lg-6">
                     <div class="box">
                         <div class="box-title">Container Ownership</div>
+
+                        {% set own = form_data.container_ownership if form_data and form_data.container_ownership else "" %}
+
                         <div class="form-check">
-                            <input class="form-check-input" type="radio" name="container_ownership" id="own_soc" value="SOC"
-                                   {% if form_data and form_data.container_ownership == "SOC" %}checked{% endif %} required>
-                            <label class="form-check-label" for="own_soc">SOC</label>
+                            <input class="form-check-input" type="radio" name="container_ownership" id="own_soc_cust"
+                                   value="SOC - Customer Owned"
+                                   {% if own == "SOC - Customer Owned" %}checked{% endif %} required>
+                            <label class="form-check-label" for="own_soc_cust">SOC - Customer Owned</label>
                         </div>
+
                         <div class="form-check mt-1">
-                            <input class="form-check-input" type="radio" name="container_ownership" id="own_coc" value="COC"
-                                   {% if form_data and form_data.container_ownership == "COC" %}checked{% endif %} required>
+                            <input class="form-check-input" type="radio" name="container_ownership" id="own_soc_log"
+                                   value="SOC - Logenix Owned"
+                                   {% if own == "SOC - Logenix Owned" %}checked{% endif %} required>
+                            <label class="form-check-label" for="own_soc_log">SOC - Logenix Owned</label>
+                        </div>
+
+                        <div class="form-check mt-1">
+                            <input class="form-check-input" type="radio" name="container_ownership" id="own_coc"
+                                   value="COC"
+                                   {% if own == "COC" %}checked{% endif %} required>
                             <label class="form-check-label" for="own_coc">COC</label>
                         </div>
                     </div>
                 </div>
 
+                <!-- Incoterm for Origin -->
                 <div class="col-lg-6">
                     <div class="box">
-                        <div class="box-title">Incoterm</div>
+                        <div class="box-title">Incoterm for Origin</div>
 
                         <div class="row">
                             <div class="col-md-6">
-                                {% set inc = form_data.incoterm if form_data and form_data.incoterm else "" %}
+                                {% set inc_origin = form_data.incoterm_origin if form_data and form_data.incoterm_origin else "" %}
                                 {% for v in ["EXW – Ex Works","FCA – Free Carrier","CPT – Carriage Paid To","CIP – Carriage and Insurance Paid To","FOR – Free on Rail","DAP – Delivered at Place","DPU – Delivered at Place Unloaded"] %}
                                 <div class="form-check">
-                                    <input class="form-check-input" type="radio" name="incoterm" id="inc_{{ loop.index0 }}a" value="{{ v }}"
-                                           {% if inc == v %}checked{% endif %} required>
-                                    <label class="form-check-label" for="inc_{{ loop.index0 }}a">{{ v }}</label>
+                                    <input class="form-check-input" type="radio" name="incoterm_origin" id="inc_origin_{{ loop.index0 }}a" value="{{ v }}"
+                                           {% if inc_origin == v %}checked{% endif %} required>
+                                    <label class="form-check-label" for="inc_origin_{{ loop.index0 }}a">{{ v }}</label>
                                 </div>
                                 {% endfor %}
                             </div>
                             <div class="col-md-6">
                                 {% for v in ["DDP – Delivered Duty Paid","FOT – Free on Truck","FAS – Free Alongside Ship","FOB – Free on Board","CFR – Cost and Freight","CIF – Cost, Insurance and Freight"] %}
                                 <div class="form-check">
-                                    <input class="form-check-input" type="radio" name="incoterm" id="inc_{{ loop.index0 }}b" value="{{ v }}"
-                                           {% if inc == v %}checked{% endif %} required>
-                                    <label class="form-check-label" for="inc_{{ loop.index0 }}b">{{ v }}</label>
+                                    <input class="form-check-input" type="radio" name="incoterm_origin" id="inc_origin_{{ loop.index0 }}b" value="{{ v }}"
+                                           {% if inc_origin == v %}checked{% endif %} required>
+                                    <label class="form-check-label" for="inc_origin_{{ loop.index0 }}b">{{ v }}</label>
                                 </div>
                                 {% endfor %}
                             </div>
@@ -295,59 +336,126 @@
                     </div>
                 </div>
 
-                <!-- =========================
-                     POL / POD (with +)
-                     ========================= -->
+                <!-- Incoterm for Destination -->
                 <div class="col-lg-6">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <label class="form-label mb-0">Pick Up Point (POL)</label>
-                        <button type="button" class="btn btn-outline-primary btn-plus" id="addPolBtn">+</button>
-                    </div>
+                    <div class="box">
+                        <div class="box-title">Incoterm for Destination</div>
 
-                    <div id="polContainer" class="mt-2">
-                        {% for i in range(1,5) %}
-                        <div class="mt-2 pol-row" data-index="{{ i }}" {% if i>1 and (not form_data or not form_data["shipping_from_" ~ i]) %}style="display:none;"{% endif %}>
-                            <input name="shipping_from_{{ i }}" class="form-control" list="locations"
-                                   {% if i==1 %}required{% endif %}
-                                   placeholder="Start typing a location..."
-                                   value="{{ form_data["shipping_from_" ~ i] if form_data and form_data["shipping_from_" ~ i] else '' }}">
+                        <div class="row">
+                            <div class="col-md-6">
+                                {% set inc_dest = form_data.incoterm_destination if form_data and form_data.incoterm_destination else "" %}
+                                {% for v in ["EXW – Ex Works","FCA – Free Carrier","CPT – Carriage Paid To","CIP – Carriage and Insurance Paid To","FOR – Free on Rail","DAP – Delivered at Place","DPU – Delivered at Place Unloaded"] %}
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="incoterm_destination" id="inc_dest_{{ loop.index0 }}a" value="{{ v }}"
+                                           {% if inc_dest == v %}checked{% endif %} required>
+                                    <label class="form-check-label" for="inc_dest_{{ loop.index0 }}a">{{ v }}</label>
+                                </div>
+                                {% endfor %}
+                            </div>
+                            <div class="col-md-6">
+                                {% for v in ["DDP – Delivered Duty Paid","FOT – Free on Truck","FAS – Free Alongside Ship","FOB – Free on Board","CFR – Cost and Freight","CIF – Cost, Insurance and Freight"] %}
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="incoterm_destination" id="inc_dest_{{ loop.index0 }}b" value="{{ v }}"
+                                           {% if inc_dest == v %}checked{% endif %} required>
+                                    <label class="form-check-label" for="inc_dest_{{ loop.index0 }}b">{{ v }}</label>
+                                </div>
+                                {% endfor %}
+                            </div>
                         </div>
-                        {% endfor %}
-                        <div class="subtle-note">You can add up to 3 more POLs.</div>
                     </div>
                 </div>
 
-                <div class="col-lg-6">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <label class="form-label mb-0">Point of Delivery (POD)</label>
-                        <button type="button" class="btn btn-outline-primary btn-plus" id="addPodBtn">+</button>
-                    </div>
+                <!-- POL / POD -->
+              <!-- Pick Up / Delivery Point Details -->
+<div class="col-lg-6">
+    <div class="d-flex justify-content-between align-items-center">
+        <label class="form-label mb-0">Pick Up Point Details</label>
+        <button type="button" class="btn btn-outline-primary btn-plus" id="addPolBtn">+</button>
+    </div>
 
-                    <div id="podContainer" class="mt-2">
-                        {% for i in range(1,5) %}
-                        <div class="mt-2 pod-row" data-index="{{ i }}" {% if i>1 and (not form_data or not form_data["destination_" ~ i]) %}style="display:none;"{% endif %}>
-                            <input name="destination_{{ i }}" class="form-control" list="locations"
-                                   {% if i==1 %}required{% endif %}
-                                   placeholder="Start typing a location..."
-                                   value="{{ form_data["destination_" ~ i] if form_data and form_data["destination_" ~ i] else '' }}">
-                        </div>
-                        {% endfor %}
-                        <div class="subtle-note">You can add up to 3 more PODs.</div>
-                    </div>
-                </div>
+    <div id="polContainer" class="mt-2">
+        {% for i in range(1,5) %}
+        <div class="mt-2 pol-row" data-index="{{ i }}" {% if i>1 and (not form_data or not form_data["shipping_from_" ~ i ~ "_city"]) %}style="display:none;"{% endif %}>
+            <div class="box">
+                <div class="box-title">Pick Up Point {{ i }}</div>
 
-                <!-- =========================
-                     Transit Borders aligned 1-2-3-4
-                     ========================= -->
+                <label class="form-label">Factory / Warehouse address</label>
+                <input name="shipping_from_{{ i }}_address" class="form-control"
+                       placeholder="Type factory/warehouse address..."
+                       value="{{ form_data["shipping_from_" ~ i ~ "_address"] if form_data and form_data["shipping_from_" ~ i ~ "_address"] else '' }}">
+
+                <label class="form-label mt-2">Port of Loading</label>
+                <input name="shipping_from_{{ i }}_port" class="form-control" list="locations"
+                       placeholder="Start typing port of loading..."
+                       value="{{ form_data["shipping_from_" ~ i ~ "_port"] if form_data and form_data["shipping_from_" ~ i ~ "_port"] else '' }}">
+
+                <label class="form-label mt-2">City</label>
+                <input name="shipping_from_{{ i }}_city" class="form-control" list="locations"
+                       {% if i==1 %}required{% endif %}
+                       placeholder="Start typing city..."
+                       value="{{ form_data["shipping_from_" ~ i ~ "_city"] if form_data and form_data["shipping_from_" ~ i ~ "_city"] else '' }}">
+
+                <label class="form-label mt-2">Country</label>
+                <input name="shipping_from_{{ i }}_country" class="form-control" list="locations"
+                       placeholder="Start typing country..."
+                       value="{{ form_data["shipping_from_" ~ i ~ "_country"] if form_data and form_data["shipping_from_" ~ i ~ "_country"] else '' }}">
+            </div>
+        </div>
+        {% endfor %}
+        <div class="subtle-note">You can add up to 3 more Pick Up Points.</div>
+    </div>
+</div>
+
+<div class="col-lg-6">
+    <div class="d-flex justify-content-between align-items-center">
+        <label class="form-label mb-0">Delivery Point Details</label>
+        <button type="button" class="btn btn-outline-primary btn-plus" id="addPodBtn">+</button>
+    </div>
+
+    <div id="podContainer" class="mt-2">
+        {% for i in range(1,5) %}
+        <div class="mt-2 pod-row" data-index="{{ i }}" {% if i>1 and (not form_data or not form_data["destination_" ~ i ~ "_city"]) %}style="display:none;"{% endif %}>
+            <div class="box">
+                <div class="box-title">Delivery Point {{ i }}</div>
+
+                <label class="form-label">Factory / Warehouse address</label>
+                <input name="destination_{{ i }}_address" class="form-control"
+                       placeholder="Type factory/warehouse address..."
+                       value="{{ form_data["destination_" ~ i ~ "_address"] if form_data and form_data["destination_" ~ i ~ "_address"] else '' }}">
+
+                <label class="form-label mt-2">Port of Loading</label>
+                <input name="destination_{{ i }}_port" class="form-control" list="locations"
+                       placeholder="Start typing port of loading..."
+                       value="{{ form_data["destination_" ~ i ~ "_port"] if form_data and form_data["destination_" ~ i ~ "_port"] else '' }}">
+
+                <label class="form-label mt-2">City</label>
+                <input name="destination_{{ i }}_city" class="form-control" list="locations"
+                       {% if i==1 %}required{% endif %}
+                       placeholder="Start typing city..."
+                       value="{{ form_data["destination_" ~ i ~ "_city"] if form_data and form_data["destination_" ~ i ~ "_city"] else '' }}">
+
+                <label class="form-label mt-2">Country</label>
+                <input name="destination_{{ i }}_country" class="form-control" list="locations"
+                       placeholder="Start typing country..."
+                       value="{{ form_data["destination_" ~ i ~ "_country"] if form_data and form_data["destination_" ~ i ~ "_country"] else '' }}">
+            </div>
+        </div>
+        {% endfor %}
+        <div class="subtle-note">You can add up to 3 more Delivery Points.</div>
+    </div>
+</div>
+
+
+                <!-- Transit Borders (all optional) -->
                 <div class="col-lg-6">
-                    <label class="form-label">Transit Country Border 1</label>
-                    <input name="transit_border_1" class="form-control" required placeholder="Type border name (required)"
+                    <label class="form-label">Transit Country Border 1 (Optional)</label>
+                    <input name="transit_border_1" class="form-control" placeholder="Type border name (optional)"
                            value="{{ form_data.transit_border_1 if form_data and form_data.transit_border_1 else '' }}">
                 </div>
 
                 <div class="col-lg-6">
-                    <label class="form-label">Transit Country Border 2</label>
-                    <input name="transit_border_2" class="form-control" required placeholder="Type border name (required)"
+                    <label class="form-label">Transit Country Border 2 (Optional)</label>
+                    <input name="transit_border_2" class="form-control" placeholder="Type border name (optional)"
                            value="{{ form_data.transit_border_2 if form_data and form_data.transit_border_2 else '' }}">
                 </div>
 
@@ -375,26 +483,34 @@
                            value="{{ form_data.packaging_type if form_data and form_data.packaging_type else '' }}">
                 </div>
 
-                <!-- Free days + Commodity + Cargo value -->
-                <div class="col-lg-4">
-                    <label class="form-label">Free Days to Return Container</label>
-                    <input name="free_days_return" type="number" step="1" min="0" required class="form-control"
-                           placeholder="Enter free days (integer)"
-                           value="{{ form_data.free_days_return if form_data and form_data.free_days_return else '' }}">
-                </div>
+<!-- Free days + Commodity + CBM + Cargo value -->
+<div class="col-lg-3">
+    <label class="form-label">Free Days to Return Container</label>
+    <input name="free_days_return" type="number" step="1" min="0" required class="form-control"
+           placeholder="Enter free days (integer)"
+           value="{{ form_data.free_days_return if form_data and form_data.free_days_return else '' }}">
+</div>
 
-                <div class="col-lg-4">
-                    <label class="form-label">Commodity</label>
-                    <input name="commodity" class="form-control" list="commodities" required placeholder="Select or type commodity"
-                           value="{{ form_data.commodity if form_data and form_data.commodity else '' }}">
-                </div>
+<div class="col-lg-3">
+    <label class="form-label">Commodity</label>
+    <input name="commodity" class="form-control" list="commodities" required placeholder="Select or type commodity"
+           value="{{ form_data.commodity if form_data and form_data.commodity else '' }}">
+</div>
 
-                <div class="col-lg-4">
-                    <label class="form-label">Cargo Value (Cost of Cargo)</label>
-                    <input name="cargo_value" id="cargo_value" type="number" step="0.01" min="0"
-                           class="form-control" placeholder="Enter cargo value (e.g., 1000)"
-                           value="{{ form_data.cargo_value if form_data and form_data.cargo_value else '' }}">
-                </div>
+<div class="col-lg-3">
+    <label class="form-label">Cubic Meter (CBM) per Package</label>
+    <input name="cbm" type="number" step="0.001" min="0"
+           class="form-control" placeholder="e.g., 1.250"
+           value="{{ form_data.cbm if form_data and form_data.cbm else '' }}">
+</div>
+
+<div class="col-lg-3">
+    <label class="form-label">Cargo Value (Cost of Cargo)</label>
+    <input name="cargo_value" id="cargo_value" type="number" step="0.01" min="0"
+           class="form-control" placeholder="Enter cargo value (e.g., 1000)"
+           value="{{ form_data.cargo_value if form_data and form_data.cargo_value else '' }}">
+</div>
+
 
                 <!-- Insurance + Misc + Weight -->
                 <div class="col-lg-4">
@@ -414,7 +530,6 @@
                     <div class="subtle-note">You can leave this empty.</div>
                 </div>
 
-                <!-- Weight -->
                 <div class="col-lg-4">
                     <label class="form-label">Weight (tons)</label>
                     <select name="weight_choice" id="weight_choice" required class="form-select">
@@ -430,27 +545,59 @@
                            style="display:none;">
                 </div>
 
-                <!-- =========================
-                     Container Type / Size / # (and dynamic fields placed HERE)
-                     ========================= -->
+                <!-- Container Type / Size / Quantities -->
                 <div class="col-lg-4">
                     <label class="form-label">Type of Container</label>
                     <input name="container_type" id="container_type" list="container_types" required class="form-control" placeholder="Select or type"
                            value="{{ form_data.container_type if form_data and form_data.container_type else '' }}">
                 </div>
 
-                <div class="col-lg-4">
-                    <label class="form-label">Container Size</label>
-                    <input name="container_size" id="container_size" list="container_sizes" required class="form-control" placeholder="Type or select 20ft / 40ft"
-                           value="{{ form_data.container_size if form_data and form_data.container_size else '' }}">
-                    <div class="subtle-note">Any typed value will be converted into clean format (20ft, 40ft).</div>
-                </div>
+                <div class="col-lg-8">
+                    <label class="form-label">Container Sizes &amp; Quantities</label>
 
-                <div class="col-lg-4">
-                    <label class="form-label">Number of Containers Required</label>
-                    <input name="num_containers" type="number" step="1" min="1" required class="form-control"
-                           placeholder="Enter whole number (e.g., 1, 2, 3)"
-                           value="{{ form_data.num_containers if form_data and form_data.num_containers else '' }}">
+                    <div class="row g-2 align-items-end">
+                        <div class="col-md-4">
+                            <div class="form-check">
+                                {% set s20sel = form_data.size_20ft_selected if form_data and form_data.size_20ft_selected else "" %}
+                                <input class="form-check-input" type="checkbox" id="size_20ft" name="size_20ft_selected" value="yes"
+                                       {% if s20sel %}checked{% endif %}>
+                                <label class="form-check-label" for="size_20ft">20ft</label>
+                            </div>
+                        </div>
+                        <div class="col-md-8">
+                            {% set s20cnt = form_data.size_20ft_count if form_data and form_data.size_20ft_count else "" %}
+                            <input type="number" step="1" min="1"
+                                   class="form-control"
+                                   name="size_20ft_count"
+                                   id="size_20ft_count"
+                                   placeholder="How many 20ft containers?"
+                                   value="{{ s20cnt }}">
+                        </div>
+                    </div>
+
+                    <div class="row g-2 align-items-end mt-2">
+                        <div class="col-md-4">
+                            <div class="form-check">
+                                {% set s40sel = form_data.size_40ft_selected if form_data and form_data.size_40ft_selected else "" %}
+                                <input class="form-check-input" type="checkbox" id="size_40ft" name="size_40ft_selected" value="yes"
+                                       {% if s40sel %}checked{% endif %}>
+                                <label class="form-check-label" for="size_40ft">40ft</label>
+                            </div>
+                        </div>
+                        <div class="col-md-8">
+                            {% set s40cnt = form_data.size_40ft_count if form_data and form_data.size_40ft_count else "" %}
+                            <input type="number" step="1" min="1"
+                                   class="form-control"
+                                   name="size_40ft_count"
+                                   id="size_40ft_count"
+                                   placeholder="How many 40ft containers?"
+                                   value="{{ s40cnt }}">
+                        </div>
+                    </div>
+
+                    <div class="subtle-note mt-1">
+                        You can select one or both sizes. For each selected size, please enter the number of containers.
+                    </div>
                 </div>
 
                 <!-- Dynamic: Dimensions -->
@@ -486,7 +633,7 @@
                     </div>
                 </div>
 
-                <!-- Shipment type + lifting + customs/offload -->
+                <!-- Shipment type + lifting + offload -->
                 <div class="col-lg-4">
                     <div class="box">
                         <div class="box-title">Shipment Type</div>
@@ -633,148 +780,181 @@
                     </div>
                 </div>
 
+                <div class="text-end mt-4">
+                    <button class="btn btn-primary btn-lg px-4" type="submit">Next</button>
+                </div>
+            </div>
+            {% endif %}
+
+            {% if stage == "routes" %}
                 <!-- =========================
-                     BUTTONS + ROUTE SELECTION
+                     ROUTES STAGE
                      ========================= -->
-                {% if stage == "routes" %}
-                    <hr class="my-4">
 
-                    <!-- Keep form data as hidden fields so it does NOT ask again -->
-                    {% for i in range(1,5) %}
-                        <input type="hidden" name="shipping_from_{{ i }}" value="{{ form_data["shipping_from_" ~ i] if form_data and form_data["shipping_from_" ~ i] else '' }}">
-                        <input type="hidden" name="destination_{{ i }}" value="{{ form_data["destination_" ~ i] if form_data and form_data["destination_" ~ i] else '' }}">
+                <input type="hidden" name="confirm_closed_route" id="confirm_closed_route" value="">
+
+{% for i in range(1,5) %}
+    <input type="hidden" name="shipping_from_{{ i }}_address" value="{{ form_data["shipping_from_" ~ i ~ "_address"] if form_data and form_data["shipping_from_" ~ i ~ "_address"] else '' }}">
+    <input type="hidden" name="shipping_from_{{ i }}_port" value="{{ form_data["shipping_from_" ~ i ~ "_port"] if form_data and form_data["shipping_from_" ~ i ~ "_port"] else '' }}">
+    <input type="hidden" name="shipping_from_{{ i }}_city" value="{{ form_data["shipping_from_" ~ i ~ "_city"] if form_data and form_data["shipping_from_" ~ i ~ "_city"] else '' }}">
+    <input type="hidden" name="shipping_from_{{ i }}_country" value="{{ form_data["shipping_from_" ~ i ~ "_country"] if form_data and form_data["shipping_from_" ~ i ~ "_country"] else '' }}">
+
+    <input type="hidden" name="destination_{{ i }}_address" value="{{ form_data["destination_" ~ i ~ "_address"] if form_data and form_data["destination_" ~ i ~ "_address"] else '' }}">
+    <input type="hidden" name="destination_{{ i }}_port" value="{{ form_data["destination_" ~ i ~ "_port"] if form_data and form_data["destination_" ~ i ~ "_port"] else '' }}">
+    <input type="hidden" name="destination_{{ i }}_city" value="{{ form_data["destination_" ~ i ~ "_city"] if form_data and form_data["destination_" ~ i ~ "_city"] else '' }}">
+    <input type="hidden" name="destination_{{ i }}_country" value="{{ form_data["destination_" ~ i ~ "_country"] if form_data and form_data["destination_" ~ i ~ "_country"] else '' }}">
+{% endfor %}
+
+
+                <input type="hidden" name="company_name" value="{{ form_data.company_name if form_data and form_data.company_name else '' }}">
+                <input type="hidden" name="salesperson_name" value="{{ form_data.salesperson_name if form_data and form_data.salesperson_name else '' }}">
+                <input type="hidden" name="container_ownership" value="{{ form_data.container_ownership if form_data and form_data.container_ownership else '' }}">
+                <input type="hidden" name="incoterm_origin" value="{{ form_data.incoterm_origin if form_data and form_data.incoterm_origin else '' }}">
+                <input type="hidden" name="incoterm_destination" value="{{ form_data.incoterm_destination if form_data and form_data.incoterm_destination else '' }}">
+
+                <input type="hidden" name="transit_border_1" value="{{ form_data.transit_border_1 if form_data and form_data.transit_border_1 else '' }}">
+                <input type="hidden" name="transit_border_2" value="{{ form_data.transit_border_2 if form_data and form_data.transit_border_2 else '' }}">
+                <input type="hidden" name="transit_border_3" value="{{ form_data.transit_border_3 if form_data and form_data.transit_border_3 else '' }}">
+                <input type="hidden" name="transit_border_4" value="{{ form_data.transit_border_4 if form_data and form_data.transit_border_4 else '' }}">
+
+                <input type="hidden" name="cargo_type" value="{{ form_data.cargo_type if form_data and form_data.cargo_type else '' }}">
+                <input type="hidden" name="packaging_type" value="{{ form_data.packaging_type if form_data and form_data.packaging_type else '' }}">
+                <input type="hidden" name="free_days_return" value="{{ form_data.free_days_return if form_data and form_data.free_days_return else '' }}">
+
+                <input type="hidden" name="lifting_labor_required" value="{{ form_data.lifting_labor_required if form_data and form_data.lifting_labor_required else '' }}">
+                <input type="hidden" name="offloading_responsible" value="{{ form_data.offloading_responsible if form_data and form_data.offloading_responsible else '' }}">
+                <input type="hidden" name="final_customs_responsible" value="{{ form_data.final_customs_responsible if form_data and form_data.final_customs_responsible else '' }}">
+
+                <input type="hidden" name="reloading_required" value="{{ form_data.reloading_required if form_data and form_data.reloading_required else '' }}">
+                <input type="hidden" name="reloading_count" value="{{ form_data.reloading_count if form_data and form_data.reloading_count else '' }}">
+
+                {% if form_data and form_data.reloading_places %}
+                    {% for p in form_data.reloading_places %}
+                        <input type="hidden" name="reloading_place_{{ loop.index }}" value="{{ p }}">
                     {% endfor %}
-                    <input type="hidden" name="company_name" value="{{ form_data.company_name if form_data and form_data.company_name else '' }}">
-                    <input type="hidden" name="salesperson_name" value="{{ form_data.salesperson_name if form_data and form_data.salesperson_name else '' }}">
-                    <input type="hidden" name="container_ownership" value="{{ form_data.container_ownership if form_data and form_data.container_ownership else '' }}">
-                    <input type="hidden" name="incoterm" value="{{ form_data.incoterm if form_data and form_data.incoterm else '' }}">
+                {% endif %}
 
-                    <input type="hidden" name="transit_border_1" value="{{ form_data.transit_border_1 if form_data and form_data.transit_border_1 else '' }}">
-                    <input type="hidden" name="transit_border_2" value="{{ form_data.transit_border_2 if form_data and form_data.transit_border_2 else '' }}">
-                    <input type="hidden" name="transit_border_3" value="{{ form_data.transit_border_3 if form_data and form_data.transit_border_3 else '' }}">
-                    <input type="hidden" name="transit_border_4" value="{{ form_data.transit_border_4 if form_data and form_data.transit_border_4 else '' }}">
+                <input type="hidden" name="commodity" value="{{ form_data.commodity if form_data and form_data.commodity else '' }}">
+                <input type="hidden" name="commodity" value="{{ form_data.commodity if form_data and form_data.commodity else '' }}">
+                <input type="hidden" name="weight_choice" value="{{ form_data.weight_choice if form_data and form_data.weight_choice else '' }}">
+                <input type="hidden" name="weight_other" value="{{ form_data.weight_other if form_data and form_data.weight_other else '' }}">
 
-                    <input type="hidden" name="cargo_type" value="{{ form_data.cargo_type if form_data and form_data.cargo_type else '' }}">
-                    <input type="hidden" name="packaging_type" value="{{ form_data.packaging_type if form_data and form_data.packaging_type else '' }}">
-                    <input type="hidden" name="free_days_return" value="{{ form_data.free_days_return if form_data and form_data.free_days_return else '' }}">
+                <input type="hidden" name="container_type" value="{{ form_data.container_type if form_data and form_data.container_type else '' }}">
+                <input type="hidden" name="container_size" value="{{ form_data.container_size if form_data and form_data.container_size else '' }}">
+                <input type="hidden" name="num_containers" value="{{ form_data.num_containers if form_data and form_data.num_containers else '' }}">
+                <input type="hidden" name="size_20ft_selected" value="{{ form_data.size_20ft_selected if form_data and form_data.size_20ft_selected else '' }}">
+                <input type="hidden" name="size_20ft_count" value="{{ form_data.size_20ft_count if form_data and form_data.size_20ft_count else '' }}">
+                <input type="hidden" name="size_40ft_selected" value="{{ form_data.size_40ft_selected if form_data and form_data.size_40ft_selected else '' }}">
+                <input type="hidden" name="size_40ft_count" value="{{ form_data.size_40ft_count if form_data and form_data.size_40ft_count else '' }}">
 
-                    <input type="hidden" name="lifting_labor_required" value="{{ form_data.lifting_labor_required if form_data and form_data.lifting_labor_required else '' }}">
-                    <input type="hidden" name="offloading_responsible" value="{{ form_data.offloading_responsible if form_data and form_data.offloading_responsible else '' }}">
-                    <input type="hidden" name="final_customs_responsible" value="{{ form_data.final_customs_responsible if form_data and form_data.final_customs_responsible else '' }}">
+                <input type="hidden" name="width_ft" value="{{ form_data.width_ft if form_data and form_data.width_ft else '' }}">
+                <input type="hidden" name="height_ft" value="{{ form_data.height_ft if form_data and form_data.height_ft else '' }}">
+                <input type="hidden" name="temperature_c" value="{{ form_data.temperature_c if form_data and form_data.temperature_c else '' }}">
 
-                    <input type="hidden" name="reloading_required" value="{{ form_data.reloading_required if form_data and form_data.reloading_required else '' }}">
-                    <input type="hidden" name="reloading_count" value="{{ form_data.reloading_count if form_data and form_data.reloading_count else '' }}">
+                <input type="hidden" name="cargo_value" value="{{ form_data.cargo_value if form_data and form_data.cargo_value else '' }}">
+                <input type="hidden" name="insurance_rate" value="{{ form_data.insurance_rate if form_data and form_data.insurance_rate else '' }}">
+                <input type="hidden" name="misc_cost" value="{{ form_data.misc_cost if form_data and form_data.misc_cost else '' }}">
 
-                    <!-- reloading places -->
-                    {% if form_data and form_data.reloading_places %}
-                        {% for p in form_data.reloading_places %}
-                            <input type="hidden" name="reloading_place_{{ loop.index }}" value="{{ p }}">
-                        {% endfor %}
+                <input type="hidden" name="special_cost_option" value="{{ form_data.special_cost_option if form_data and form_data.special_cost_option else '' }}">
+                <input type="hidden" name="reason" value="{{ form_data.reason if form_data and form_data.reason else '' }}">
+                <input type="hidden" name="special_cost" value="{{ form_data.special_cost if form_data and form_data.special_cost else '' }}">
+
+                <input type="hidden" name="shipment_type" value="{{ form_data.shipment_type if form_data and form_data.shipment_type else '' }}">
+
+                <div class="route-select-card mt-2">
+                    <div class="route-select-title">Choose a Route (Required)</div>
+
+                    {% if route_error_msg %}
+                        <div class="alert alert-warning mt-2 mb-2">{{ route_error_msg }}</div>
                     {% endif %}
 
-                    <input type="hidden" name="commodity" value="{{ form_data.commodity if form_data and form_data.commodity else '' }}">
-                    <input type="hidden" name="weight_choice" value="{{ form_data.weight_choice if form_data and form_data.weight_choice else '' }}">
-                    <input type="hidden" name="weight_other" value="{{ form_data.weight_other if form_data and form_data.weight_other else '' }}">
-
-                    <input type="hidden" name="container_type" value="{{ form_data.container_type if form_data and form_data.container_type else '' }}">
-                    <input type="hidden" name="container_size" value="{{ form_data.container_size if form_data and form_data.container_size else '' }}">
-                    <input type="hidden" name="num_containers" value="{{ form_data.num_containers if form_data and form_data.num_containers else '' }}">
-
-                    <input type="hidden" name="width_ft" value="{{ form_data.width_ft if form_data and form_data.width_ft else '' }}">
-                    <input type="hidden" name="height_ft" value="{{ form_data.height_ft if form_data and form_data.height_ft else '' }}">
-                    <input type="hidden" name="temperature_c" value="{{ form_data.temperature_c if form_data and form_data.temperature_c else '' }}">
-
-                    <input type="hidden" name="cargo_value" value="{{ form_data.cargo_value if form_data and form_data.cargo_value else '' }}">
-                    <input type="hidden" name="insurance_rate" value="{{ form_data.insurance_rate if form_data and form_data.insurance_rate else '' }}">
-                    <input type="hidden" name="misc_cost" value="{{ form_data.misc_cost if form_data and form_data.misc_cost else '' }}">
-
-                    <input type="hidden" name="special_cost_option" value="{{ form_data.special_cost_option if form_data and form_data.special_cost_option else '' }}">
-                    <input type="hidden" name="reason" value="{{ form_data.reason if form_data and form_data.reason else '' }}">
-                    <input type="hidden" name="special_cost" value="{{ form_data.special_cost if form_data and form_data.special_cost else '' }}">
-
-                    <input type="hidden" name="shipment_type" value="{{ form_data.shipment_type if form_data and form_data.shipment_type else '' }}">
-
-                    <div class="route-select-card">
-                        <div class="route-select-title">Choose a Route (Required)</div>
-
-                        {% if route_error_msg %}
-                            <div class="alert alert-warning mt-2 mb-2">{{ route_error_msg }}</div>
-                        {% endif %}
-
-                        {% if routes and routes|length > 0 %}
-                            {% for r in routes %}
-                            <div class="route-choice {% if r.id == best_route_id %}best{% endif %}">
-                                <div class="d-flex justify-content-between align-items-start">
-                                    <div>
-                                        <div class="route-name">
-                                            <label class="form-check-label" for="route_{{ r.id }}">
-                                                {{ r.title }}
-                                                {% if r.is_recent %}
-                                                    <span class="badge bg-secondary ms-2">Recent</span>
-                                                {% endif %}
-                                            </label>
-                                        </div>
+                    {% if routes and routes|length > 0 %}
+                        {% for r in routes %}
+                        <div class="route-choice {% if r.id == best_route_id %}best{% endif %}">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div>
+                                    <div class="route-name">
+                                        <label class="form-check-label" for="route_{{ r.id }}">
+                                            {{ r.title }}
+                                            {% if r.id == best_route_id %}
+                                                <span class="badge-best-route ms-2">Best Route</span>
+                                            {% endif %}
+                                        </label>
                                     </div>
-                                    <div class="d-flex align-items-center gap-2">
-                                        {% if r.id == best_route_id %}
-                                            <span class="badge-best-route">Best Route</span>
+
+                                    <div class="mt-2 d-flex flex-wrap gap-2">
+                                        {% set rs = (r.route_status if r.route_status else "open")|lower %}
+                                        {% if rs == "closed" %}
+                                            <span class="badge-closed">closed</span>
+                                        {% else %}
+                                            <span class="badge-open">open</span>
                                         {% endif %}
-                                        <input class="form-check-input mt-0" type="radio"
-                                               name="selected_route_id"
-                                               id="route_{{ r.id }}"
-                                               value="{{ r.id }}"
-                                               {% if selected_route_id == r.id %}checked{% endif %}
-                                               required>
+
+                                        {% if r.transit_time_days and r.transit_time_days.min is not none and r.transit_time_days.max is not none %}
+                                            <span class="badge-tt">Transit: {{ r.transit_time_days.min }}–{{ r.transit_time_days.max }} days</span>
+                                        {% else %}
+                                            <span class="badge-tt">Transit: N/A</span>
+                                        {% endif %}
+
+                                        {% if r.is_recent %}
+                                            <span class="badge bg-secondary">Recent</span>
+                                        {% endif %}
                                     </div>
                                 </div>
-                                <div class="route-desc">{{ r.path }}</div>
-                            </div>
-                            {% endfor %}
-                        {% else %}
-                            <div class="alert alert-warning mt-2">
-                                No routes found for now.
-                            </div>
-                        {% endif %}
 
-                        <div class="route-choice mt-3">
-                            <div class="d-flex justify-content-between align-items-center">
-                                <div class="route-name">
-                                    <label class="form-check-label" for="route_OWN">My own route</label>
-                                </div>
-                                <input class="form-check-input mt-0" type="radio"
-                                       name="selected_route_id"
-                                       id="route_OWN"
-                                       value="OWN"
-                                       {% if selected_route_id == "OWN" %}checked{% endif %}
-                                       required>
-                            </div>
-
-                            <div class="mt-2">
-                                <textarea name="own_route_text" id="own_route_text" class="form-control"
-                                          rows="3"
-                                          placeholder="Type your route here (must include Pick Up Point and Point of Delivery)"></textarea>
-                                <div class="subtle-note">
-                                    If you type your own route, it will be saved and shown again for the same Pick Up Point and Point of Delivery.
+                                <div class="d-flex align-items-center gap-2">
+                                    <input class="form-check-input mt-0 route-radio"
+                                           type="radio"
+                                           name="selected_route_id"
+                                           id="route_{{ r.id }}"
+                                           value="{{ r.id }}"
+                                           data-status="{{ (r.route_status if r.route_status else 'open')|lower }}"
+                                           {% if selected_route_id == r.id %}checked{% endif %}
+                                           required>
                                 </div>
                             </div>
+
+                            <div class="route-desc">{{ r.path }}</div>
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                        <div class="alert alert-warning mt-2">
+                            No routes found for now.
+                        </div>
+                    {% endif %}
+
+                    <div class="route-choice mt-3">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div class="route-name">
+                                <label class="form-check-label" for="route_OWN">My own route</label>
+                            </div>
+                            <input class="form-check-input mt-0 route-radio" type="radio"
+                                   name="selected_route_id"
+                                   id="route_OWN"
+                                   value="OWN"
+                                   data-status="open"
+                                   {% if selected_route_id == "OWN" %}checked{% endif %}
+                                   required>
                         </div>
 
-                        <div class="text-end mt-3">
-                            <button class="btn btn-primary btn-lg px-4" type="submit">Generate</button>
+                        <div class="mt-2">
+                            <textarea name="own_route_text" id="own_route_text" class="form-control"
+                                      rows="3"
+                                      placeholder="Type your route here (must include Pick Up Point and Point of Delivery)"></textarea>
+                            <div class="subtle-note">
+                                If you type your own route, it will be saved and shown again for the same Pick Up Point and Point of Delivery.
+                            </div>
                         </div>
                     </div>
 
-                {% else %}
-                    <div class="text-end mt-4">
-                        <button class="btn btn-primary btn-lg px-4" type="submit">Next</button>
+                    <div class="text-end mt-3">
+                        <button class="btn btn-primary btn-lg px-4" type="submit">Generate</button>
                     </div>
-                {% endif %}
-            </div>
+                </div>
+            {% endif %}
         </form>
 
-        <!-- =========================
-             Submitted summary
-             ========================= -->
+        <!-- Submitted summary -->
         {% if submitted %}
             <hr class="my-4">
             <h5 class="fw-bold text-success">Query Submitted</h5>
@@ -795,9 +975,7 @@
             <p class="text-muted mt-2"><em>Saved to queries.xlsx</em></p>
         {% endif %}
 
-        <!-- =========================
-             Quotes
-             ========================= -->
+        <!-- Quotes -->
         {% if stage == "result" %}
             <hr class="my-4">
 
@@ -864,9 +1042,6 @@
 </div>
 
 <script>
-    // IMPORTANT: current stage from server (input | routes | result)
-    const CURRENT_STAGE = "{{ stage }}";
-
     // ----------------------------
     // Helper parsing
     // ----------------------------
@@ -910,7 +1085,7 @@
     const weightOther  = document.getElementById("weight_other");
 
     function syncWeightOther() {
-        if (!weightChoice) return;
+        if (!weightChoice || !weightOther) return;
         if (weightChoice.value === "Other") {
             weightOther.style.display = "block";
             weightOther.required = true;
@@ -977,14 +1152,6 @@
     }
 
     function buildPlacesInputs(count) {
-        // CRITICAL FIX:
-        // On routes stage we MUST NOT rebuild required inputs again,
-        // otherwise browser validation will block "Generate" and re-ask reload points.
-        if (CURRENT_STAGE === "routes") {
-            clearPlaces();
-            return;
-        }
-
         clearPlaces();
         if (!count || count < 1) return;
 
@@ -1001,19 +1168,6 @@
     }
 
     function syncReloadingUI() {
-        // CRITICAL FIX:
-        // When on routes stage, do not activate reloading UI or required fields again.
-        if (CURRENT_STAGE === "routes") {
-            if (reloadingCount) {
-                reloadingCount.disabled = true;
-            }
-            if (reloadingHelp) {
-                reloadingHelp.style.display = "none";
-            }
-            clearPlaces();
-            return;
-        }
-
         if (!reloadYes || !reloadingCount || !reloadingHelp) return;
 
         const yesSelected = reloadYes.checked;
@@ -1075,7 +1229,7 @@
     syncSpecialCostUI();
 
     // ----------------------------
-    // Container type -> show dimensions/temp (placed near container fields)
+    // Container type -> show dimensions/temp
     // ----------------------------
     const containerTypeEl = document.getElementById("container_type");
     const dimWrap = document.getElementById("dimensions_wrap");
@@ -1110,17 +1264,97 @@
     syncContainerSpecialFields();
 
     // ----------------------------
-    // Container size clean format: (20ft, 40ft)
+    // Container sizes & counts (20ft / 40ft)
     // ----------------------------
-    const containerSizeEl = document.getElementById("container_size");
-    function cleanContainerSize() {
-        if (!containerSizeEl) return;
-        const s = (containerSizeEl.value || "").toLowerCase();
-        if (!s) return;
-        if (s.includes("20")) containerSizeEl.value = "20ft";
-        else if (s.includes("40")) containerSizeEl.value = "40ft";
+    const size20Cb = document.getElementById("size_20ft");
+    const size40Cb = document.getElementById("size_40ft");
+    const size20CountEl = document.getElementById("size_20ft_count");
+    const size40CountEl = document.getElementById("size_40ft_count");
+
+    function syncSizeCounts() {
+        if (!size20Cb || !size20CountEl || !size40Cb || !size40CountEl) return;
+
+        if (size20Cb.checked) {
+            size20CountEl.disabled = false;
+            size20CountEl.required = true;
+        } else {
+            size20CountEl.disabled = true;
+            size20CountEl.required = false;
+            size20CountEl.value = "";
+        }
+
+        if (size40Cb.checked) {
+            size40CountEl.disabled = false;
+            size40CountEl.required = true;
+        } else {
+            size40CountEl.disabled = true;
+            size40CountEl.required = false;
+            size40CountEl.value = "";
+        }
     }
-    if (containerSizeEl) containerSizeEl.addEventListener("blur", cleanContainerSize);
+
+    if (size20Cb) size20Cb.addEventListener("change", syncSizeCounts);
+    if (size40Cb) size40Cb.addEventListener("change", syncSizeCounts);
+    syncSizeCounts();
+
+    // ----------------------------
+    // CLOSED ROUTE CONFIRMATION & basic size validation
+    // ----------------------------
+    const quoteForm = document.getElementById("quoteForm");
+    const confirmClosedInput = document.getElementById("confirm_closed_route");
+
+    function getSelectedRouteRadio() {
+        const radios = Array.from(document.querySelectorAll('input[name="selected_route_id"]'));
+        return radios.find(r => r.checked) || null;
+    }
+
+    // Validate container sizes on "Next"
+    if (quoteForm) {
+        quoteForm.addEventListener("submit", function (e) {
+            const actionEl = document.querySelector('input[name="_action"]');
+            const actionVal = actionEl ? (actionEl.value || "").toLowerCase() : "";
+
+            if (actionVal === "next") {
+                if (size20Cb || size40Cb) {
+                    const anySelected = (size20Cb && size20Cb.checked) || (size40Cb && size40Cb.checked);
+                    if (!anySelected) {
+                        e.preventDefault();
+                        alert("Please select at least one container size (20ft or 40ft) and enter the quantity.");
+                        return;
+                    }
+                }
+            }
+        });
+    }
+
+    // Closed route confirmation on "Generate"
+    if (quoteForm) {
+        quoteForm.addEventListener("submit", function (e) {
+            const actionEl = document.querySelector('input[name="_action"]');
+            const actionVal = actionEl ? (actionEl.value || "").toLowerCase() : "";
+
+            if (actionVal !== "generate") return;
+            if (!confirmClosedInput) return;
+
+            const selected = getSelectedRouteRadio();
+            if (!selected) return;
+
+            const status = (selected.dataset.status || "open").toLowerCase();
+            if (status !== "closed") {
+                confirmClosedInput.value = "";
+                return;
+            }
+
+            if ((confirmClosedInput.value || "").toLowerCase() === "yes") return;
+
+            const ok = window.confirm("Your selected route is CLOSED. Are you sure you want to go with the selected closed route?");
+            if (!ok) {
+                e.preventDefault();
+                return;
+            }
+            confirmClosedInput.value = "yes";
+        });
+    }
 </script>
 
 </body>
