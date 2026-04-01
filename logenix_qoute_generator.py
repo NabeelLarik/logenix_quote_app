@@ -24,7 +24,7 @@ ONEDRIVE_USER_EMAIL = os.getenv("ONEDRIVE_USER_EMAIL", "nahmed@logenix.pk").stri
 
 ONEDRIVE_PRICES_PATH = os.getenv(
     "ONEDRIVE_PRICES_PATH",
-    "Automation Documents/Logenix/prices.xlsx"
+    "Automation Documents/Logenix/prices_updated.xlsx"
 ).strip()
 
 ONEDRIVE_QUERIES_PATH = os.getenv(
