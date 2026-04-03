@@ -444,6 +444,45 @@ def route_cell_matches_selected(cell_value: Any, selected_route_id: str, selecte
     return False
 
 # -------------------------
+# ROUTE STATUS HELPERS
+# -------------------------
+def normalize_route_status(val: Any) -> str:
+    s = canon(val)
+    if s in {"open", "closed", "not sure", "not used"}:
+        return s
+    return "open"
+
+
+def route_status_rank(val: Any) -> int:
+    """
+    Lower rank = better route for sorting.
+    Business order:
+      open      -> best
+      not sure  -> usable but uncertain
+      not used  -> lower preference
+      closed    -> last
+    """
+    s = normalize_route_status(val)
+    if s == "open":
+        return 0
+    if s == "not sure":
+        return 1
+    if s == "not used":
+        return 2
+    if s == "closed":
+        return 3
+    return 4
+
+
+def route_requires_confirmation(val: Any) -> bool:
+    """
+    Require user confirmation for risky route statuses.
+    """
+    s = normalize_route_status(val)
+    return s in {"closed", "not sure", "not used"}
+
+
+# -------------------------
 # ROUTES (load from routes.json)
 # -------------------------
 def load_routes_json() -> List[Dict[str, Any]]:
@@ -631,7 +670,7 @@ def get_matching_routes(
         rr["is_custom"] = False
         rr["is_reverse"] = bool(is_reverse)
         rr["path"] = reverse_path(rr.get("path", "")) if is_reverse else rr.get("path", "")
-        rr["route_status"] = (rr.get("route_status") or "open").strip().lower()
+        rr["route_status"] = normalize_route_status(rr.get("route_status"))
         rr["_tt_key"] = transit_time_key(rr)
         rr["_match_score"] = int(match_score)
 
@@ -639,17 +678,6 @@ def get_matching_routes(
 
     if not matched:
         return [], None
-
-    def route_status_rank(val: str) -> int:
-        s = canon(val)
-        if s == "open":
-            return 0
-        if s == "variable":
-            return 1
-        if s == "closed":
-            return 2
-        return 3
-
     matched.sort(
         key=lambda x: (
             route_status_rank(x.get("route_status", "")),
@@ -2107,10 +2135,13 @@ def build_routes_for_pol_pod(pol: str, pod: str):
             return rr.get("transit_min")
         return 10**9
 
-    def _is_open(rr):
-        return _norm(rr.get("route_status") or "open") != "closed"
-
-    routes_sorted = sorted(routes, key=lambda rr: (not _is_open(rr), _transit_min(rr)))
+    routes_sorted = sorted(
+        routes,
+        key=lambda rr: (
+            route_status_rank(rr.get("route_status", "")),
+            _transit_min(rr)
+        )
+    )
     best_route_id = routes_sorted[0].get("id")
 
     return routes, best_route_id, route_error_msg
@@ -2546,24 +2577,15 @@ def submit():
 
     best_route_id_all: Optional[str] = None
     if all_routes:
-        def _route_status_rank(val: str) -> int:
-            s = canon(val)
-            if s == "open":
-                return 0
-            if s == "variable":
-                return 1
-            if s == "closed":
-                return 2
-            return 3
-    all_routes_sorted = sorted(
-        all_routes,
-        key=lambda x: (
-            _route_status_rank(x.get("route_status", "")),
-            -int(x.get("_match_score", 0)),
-            x.get("_tt_key", (10**9, 10**9))
+        all_routes_sorted = sorted(
+            all_routes,
+            key=lambda x: (
+                route_status_rank(x.get("route_status", "")),
+                -int(x.get("_match_score", 0)),
+                x.get("_tt_key", (10**9, 10**9))
+            )
         )
-    )
-    best_route_id_all = all_routes_sorted[0].get("id")
+        best_route_id_all = all_routes_sorted[0].get("id")
 
     if action == "next":
         return render_template(
@@ -2642,8 +2664,13 @@ def submit():
                 else:
                     selected_route_transit_days = ""
 
-                if selected_route_status == "closed" and confirm_closed != "yes":
-                    route_error_msg = "Your selected route is CLOSED. Please confirm you want to proceed with a closed route."
+                if route_requires_confirmation(selected_route_status) and confirm_closed != "yes":
+                    if selected_route_status == "closed":
+                        route_error_msg = "Your selected route is CLOSED. Please confirm you want to proceed with this closed route."
+                    elif selected_route_status == "not sure":
+                        route_error_msg = "Your selected route is marked NOT SURE. Please confirm you want to proceed with this uncertain route."
+                    elif selected_route_status == "not used":
+                        route_error_msg = "Your selected route is marked NOT USED. Please confirm you want to proceed with this route."
     else:
         if selected_route_id == "OWN":
             if not own_route_text:

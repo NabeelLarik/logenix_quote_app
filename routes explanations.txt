@@ -1,0 +1,8 @@
+china routes:
+keep
+r15
+r56
+update: 57 (remove pakistan)
+r60
+
+remove all else.

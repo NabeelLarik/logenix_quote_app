@@ -383,6 +383,42 @@
             font-size: 12px;
             text-transform: uppercase;
         }
+        .badge-not-sure{
+            background: rgba(255,243,205,.95);
+            color: #664d03;
+            font-weight: 900;
+            border-radius: 999px;
+            padding: 6px 10px;
+            font-size: 12px;
+            text-transform: uppercase;
+        }
+        .badge-not-used{
+            background: rgba(226,227,229,.95);
+            color: #41464b;
+            font-weight: 900;
+            border-radius: 999px;
+            padding: 6px 10px;
+            font-size: 12px;
+            text-transform: uppercase;
+        }
+        .badge-not-sure{
+            background: rgba(255,243,205,.95);
+            color: #664d03;
+            font-weight: 900;
+            border-radius: 999px;
+            padding: 6px 10px;
+            font-size: 12px;
+            text-transform: uppercase;
+        }
+        .badge-not-used{
+            background: rgba(226,227,229,.95);
+            color: #41464b;
+            font-weight: 900;
+            border-radius: 999px;
+            padding: 6px 10px;
+            font-size: 12px;
+            text-transform: uppercase;
+        }
         .badge-tt{
             background: rgba(231,241,255,.95);
             color: #0b3bda;
@@ -1138,123 +1174,77 @@
 </div>
 
                     <!-- ROUTES: Auto opens after Delivery Point filled -->
-                    <div class="col-12 anim-block" id="routesWrap" style="display:none;">
-                        <div class="route-select-card mt-2">
-                            <div class="route-select-title">Ask Route (Choose a Route)</div>
+<div class="col-12 anim-block" id="routesWrap" style="display:none;">
+    <div class="route-select-card mt-2">
+        <div class="route-select-title">Ask Route (Choose a Route)</div>
 
-                            {% if route_error_msg %}
-                                <!-- ✅ One message container (JS will fill this) -->
-<div class="alert alert-warning mt-2 mb-2" id="routesMsg" style="display:none;"></div>
+        <!-- One message container -->
+        <div class="alert alert-warning mt-2 mb-2" id="routesMsg" style="display:none;"></div>
 
-<!-- ✅ Routes list wrapper -->
-<div id="routesList">
-  {% if routes and routes|length > 0 %}
-    {% for r in routes %}
-      <div class="route-choice {% if r.id == best_route_id %}best{% endif %}">
-        <div class="d-flex justify-content-between align-items-start">
-          <div>
-            <div class="route-name">
-              <label class="form-check-label" for="route_{{ r.id }}">
-                {{ r.title }}
-                {% if r.id == best_route_id %}
-                  <span class="badge-best-route ms-2">Best Route</span>
-                {% endif %}
-              </label>
-            </div>
+        <!-- Routes list wrapper -->
+        <div id="routesList">
+            {% if routes and routes|length > 0 %}
+                {% for r in routes %}
+                <div class="route-choice {% if r.id == best_route_id %}best{% endif %}">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <div class="route-name">
+                                <label class="form-check-label" for="route_{{ r.id }}">
+                                    {{ r.title }}
+                                    {% if r.id == best_route_id %}
+                                        <span class="badge-best-route ms-2">Best Route</span>
+                                    {% endif %}
+                                </label>
+                            </div>
 
-            <div class="mt-2 d-flex flex-wrap gap-2">
-              {% set rs = (r.route_status if r.route_status else "open")|lower %}
-              {% if rs == "closed" %}
-                <span class="badge-closed">closed</span>
-              {% else %}
-                <span class="badge-open">open</span>
-              {% endif %}
+                            <div class="mt-2 d-flex flex-wrap gap-2">
+                                {% set rs = (r.route_status if r.route_status else "open")|lower %}
+                                {% if rs == "closed" %}
+                                    <span class="badge-closed">closed</span>
+                                {% elif rs == "not sure" %}
+                                    <span class="badge-not-sure">not sure</span>
+                                {% elif rs == "not used" %}
+                                    <span class="badge-not-used">not used</span>
+                                {% else %}
+                                    <span class="badge-open">open</span>
+                                {% endif %}
 
-              {% if r.transit_time_days and r.transit_time_days.min is not none and r.transit_time_days.max is not none %}
-                <span class="badge-tt">Transit: {{ r.transit_time_days.min }}–{{ r.transit_time_days.max }} days</span>
-              {% else %}
-                <span class="badge-tt">Transit: N/A</span>
-              {% endif %}
+                                {% if r.transit_time_days and r.transit_time_days.min is not none and r.transit_time_days.max is not none %}
+                                    <span class="badge-tt">Transit: {{ r.transit_time_days.min }}–{{ r.transit_time_days.max }} days</span>
+                                {% elif r.transit_min is not none and r.transit_max is not none %}
+                                    <span class="badge-tt">Transit: {{ r.transit_min }}–{{ r.transit_max }} days</span>
+                                {% else %}
+                                    <span class="badge-tt">Transit: N/A</span>
+                                {% endif %}
 
-              {% if r.is_recent %}
-                <span class="badge bg-secondary">Recent</span>
-              {% endif %}
-            </div>
-          </div>
+                                {% if r.is_recent %}
+                                    <span class="badge bg-secondary">Recent</span>
+                                {% endif %}
+                            </div>
+                        </div>
 
-          <div class="d-flex align-items-center gap-2">
-            <input class="form-check-input mt-0 route-radio"
-                   type="radio"
-                   name="selected_route_id"
-                   id="route_{{ r.id }}"
-                   value="{{ r.id }}"
-                   data-status="{{ (r.route_status if r.route_status else 'open')|lower }}"
-                   {% if selected_route_id == r.id %}checked{% endif %}>
-          </div>
-        </div>
-
-        <div class="route-desc">{{ r.path }}</div>
-      </div>
-    {% endfor %}
-  {% endif %}
-</div>
-                            {% endif %}
-
-                            {% if routes and routes|length > 0 %}
-                                {% for r in routes %}
-                                <div class="route-choice {% if r.id == best_route_id %}best{% endif %}">
-                                    <div class="d-flex justify-content-between align-items-start">
-                                        <div>
-                                            <div class="route-name">
-                                                <label class="form-check-label" for="route_{{ r.id }}">
-                                                    {{ r.title }}
-                                                    {% if r.id == best_route_id %}
-                                                        <span class="badge-best-route ms-2">Best Route</span>
-                                                    {% endif %}
-                                                </label>
-                                            </div>
-
-                                            <div class="mt-2 d-flex flex-wrap gap-2">
-                                                {% set rs = (r.route_status if r.route_status else "open")|lower %}
-                                                {% if rs == "closed" %}
-                                                    <span class="badge-closed">closed</span>
-                                                {% else %}
-                                                    <span class="badge-open">open</span>
-                                                {% endif %}
-
-                                                {% if r.transit_time_days and r.transit_time_days.min is not none and r.transit_time_days.max is not none %}
-                                                    <span class="badge-tt">Transit: {{ r.transit_time_days.min }}–{{ r.transit_time_days.max }} days</span>
-                                                {% else %}
-                                                    <span class="badge-tt">Transit: N/A</span>
-                                                {% endif %}
-
-                                                {% if r.is_recent %}
-                                                    <span class="badge bg-secondary">Recent</span>
-                                                {% endif %}
-                                            </div>
-                                        </div>
-
-                                        <div class="d-flex align-items-center gap-2">
-                                            <input class="form-check-input mt-0 route-radio"
-                                                   type="radio"
-                                                   name="selected_route_id"
-                                                   id="route_{{ r.id }}"
-                                                   value="{{ r.id }}"
-                                                   data-status="{{ (r.route_status if r.route_status else 'open')|lower }}"
-                                                   {% if selected_route_id == r.id %}checked{% endif %}>
-                                        </div>
-                                    </div>
-
-                                    <div class="route-desc">{{ r.path }}</div>
-                                </div>
-                                {% endfor %}
-                            {% else %}
-                                <div class="alert alert-warning mt-2">
-                                    No routes found for now.
-                                </div>
-                            {% endif %}
+                        <div class="d-flex align-items-center gap-2">
+                            <input class="form-check-input mt-0 route-radio"
+                                   type="radio"
+                                   name="selected_route_id"
+                                   id="route_{{ r.id }}"
+                                   value="{{ r.id }}"
+                                   data-status="{{ (r.route_status if r.route_status else 'open')|lower }}"
+                                   {% if selected_route_id == r.id %}checked{% endif %}>
                         </div>
                     </div>
+
+                    <div class="route-desc">{{ r.path }}</div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="alert alert-warning mt-2 mb-0">
+                    No routes found for now.
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
 
                     <!-- Free Days -->
                     <div class="col-lg-6">
@@ -2178,14 +2168,24 @@ if (hasAnySelectableRoute && !selected) {
 }
 
             const status = (selected.dataset.status || "open").toLowerCase();
-            if (status !== "closed") {
+
+            if (!["closed", "not sure", "not used"].includes(status)) {
                 confirmClosedInput.value = "";
                 return;
             }
 
             if ((confirmClosedInput.value || "").toLowerCase() === "yes") return;
 
-            const ok = window.confirm("Your selected route is CLOSED. Are you sure you want to go with the selected closed route?");
+            let msg = "Please confirm this route selection.";
+            if (status === "closed") {
+                msg = "Your selected route is CLOSED. Are you sure you want to go with the selected closed route?";
+            } else if (status === "not sure") {
+                msg = "Your selected route is marked NOT SURE. Are you sure you want to proceed with this route?";
+            } else if (status === "not used") {
+                msg = "Your selected route is marked NOT USED. Are you sure you want to proceed with this route?";
+            }
+
+            const ok = window.confirm(msg);
             if (!ok) {
                 e.preventDefault();
                 return;
@@ -2751,7 +2751,15 @@ function renderRoutesFromApi(routes, bestId) {
           </div>
 
           <div class="mt-2 d-flex flex-wrap gap-2">
-            ${status === "closed" ? `<span class="badge-closed">closed</span>` : `<span class="badge-open">open</span>`}
+                        ${
+              status === "closed"
+                ? `<span class="badge-closed">closed</span>`
+                : status === "not sure"
+                ? `<span class="badge-not-sure">not sure</span>`
+                : status === "not used"
+                ? `<span class="badge-not-used">not used</span>`
+                : `<span class="badge-open">open</span>`
+            }
             <span class="badge-tt">${ttTxt}</span>
           </div>
         </div>

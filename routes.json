@@ -9,7 +9,7 @@
     "path": "Karachi (Pakistan) → Peshawar → Torkham Border (Pakistan/Afghanistan) → Jalalabad → Kabul (Afghanistan).",
     "must_borders": ["torkham"],
     "transit_time_days": { "min": 4, "max": 7 },
-    "route_status": "variable"
+    "route_status": "closed"
   },
   {
     "id": "R2",
@@ -21,7 +21,7 @@
     "path": "Karachi (Pakistan) → Quetta → Chaman / Friendship Gate (Pakistan/Afghanistan) → Spin Boldak → Kandahar → Kabul (Afghanistan).",
     "must_borders": ["chaman"],
     "transit_time_days": { "min": 5, "max": 9 },
-    "route_status": "variable"
+    "route_status": "closed"
   },
   {
     "id": "R3",
@@ -33,7 +33,7 @@
     "path": "Karachi → Quetta → Chaman / Friendship Gate (Pakistan/Afghanistan) → Kandahar → Farah → Herat (Afghanistan).",
     "must_borders": ["chaman"],
     "transit_time_days": { "min": 6, "max": 10 },
-    "route_status": "variable"
+    "route_status": "closed"
   },
   {
     "id": "R4",
@@ -45,7 +45,7 @@
     "path": "Karachi → Peshawar → Torkham Border (Pakistan/Afghanistan) → Kabul → Mazar-i-Sharif → Hairatan Border / Friendship Bridge (Afghanistan/Uzbekistan) → Termez → Tashkent (Uzbekistan).",
     "must_borders": ["torkham", "hairatan"],
     "transit_time_days": { "min": 8, "max": 13 },
-    "route_status": "variable"
+    "route_status": "closed"
   },
   {
     "id": "R5",
@@ -57,7 +57,7 @@
     "path": "Karachi → Peshawar → Torkham Border → Kabul → Mazar-i-Sharif → Hairatan (Afghanistan/Uzbekistan) → Termez → Samarkand → Jizzakh (Uzbekistan).",
     "must_borders": ["torkham", "hairatan"],
     "transit_time_days": { "min": 9, "max": 14 },
-    "route_status": "variable"
+    "route_status": "closed"
   },
   {
     "id": "R6",
@@ -69,7 +69,7 @@
     "path": "Karachi → Quetta → Chaman / Friendship Gate → Kandahar → Herat → Torghundi Border (Afghanistan/Turkmenistan) → Serhetabat → Ashgabat (Turkmenistan).",
     "must_borders": ["chaman", "torghundi"],
     "transit_time_days": { "min": 8, "max": 12 },
-    "route_status": "variable"
+    "route_status": "closed"
   },
   {
     "id": "R7",
@@ -81,7 +81,7 @@
     "path": "Bandar Abbas Port (Iran) → Mashhad/Taybad → Dogharoun–Islam Qala Border (Iran/Afghanistan) → Herat (Afghanistan).",
     "must_borders": ["islam qala"],
     "transit_time_days": { "min": 4, "max": 7 },
-    "route_status": "variable"
+    "route_status": "not sure"
   },
   {
     "id": "R8",
@@ -93,7 +93,7 @@
     "path": "Bandar Abbas Port → Dogharoun–Islam Qala (Iran/Afghanistan) → Herat → Mazar-i-Sharif → Hairatan Border (Afghanistan/Uzbekistan) → Termez → Tashkent (Uzbekistan).",
     "must_borders": ["islam qala", "hairatan"],
     "transit_time_days": { "min": 8, "max": 14 },
-    "route_status": "variable"
+    "route_status": "not sure"
   },
   {
     "id": "R9",
@@ -105,7 +105,7 @@
     "path": "Jebel Ali Port (UAE) → (Sea via Strait of Hormuz) → Bandar Abbas Port (Iran).",
     "must_borders": [],
     "transit_time_days": { "min": 3, "max": 6 },
-    "route_status": "open"
+    "route_status": "closed"
   },
   {
     "id": "R10",
@@ -117,7 +117,7 @@
     "path": "Jebel Ali Port (UAE) → Bandar Abbas Port (Iran) → Dogharoun–Islam Qala (Iran/Afghanistan) → Herat → Mazar-i-Sharif → Hairatan (Afghanistan/Uzbekistan) → Termez → Tashkent (Uzbekistan).",
     "must_borders": ["islam qala", "hairatan"],
     "transit_time_days": { "min": 12, "max": 20 },
-    "route_status": "variable"
+    "route_status": "closed"
   },
   {
     "id": "R11",
@@ -129,7 +129,7 @@
     "path": "Bandar Abbas Port (Iran) → Tehran → Sarakhs Border (Iran/Turkmenistan) → Ashgabat (Turkmenistan).",
     "must_borders": ["sarakhs"],
     "transit_time_days": { "min": 6, "max": 10 },
-    "route_status": "open"
+    "route_status": "not sure"
   },
   {
     "id": "R12",
@@ -141,7 +141,7 @@
     "path": "Bandar Abbas Port (Iran) → Sarakhs Border (Iran/Turkmenistan) → Ashgabat → (Turkmenistan transit) → Kazakhstan → Almaty (Kazakhstan).",
     "must_borders": ["sarakhs"],
     "transit_time_days": { "min": 10, "max": 16 },
-    "route_status": "open"
+    "route_status": "not sure"
   },
   {
     "id": "R13",
@@ -237,7 +237,7 @@
     "path": "Chennai Port (India) → (Sea) → Karachi Port (Pakistan).",
     "must_borders": [],
     "transit_time_days": { "min": 7, "max": 14 },
-    "route_status": "open"
+    "route_status": "closed"
   },
   {
     "id": "R21",
@@ -277,15 +277,15 @@
   },
   {
     "id": "R24",
-    "title": "Mombasa Port to Karachi Port (Sea)",
+    "title": "Mombasa Port to Karachi Port (Sea, indirect / subject to carrier availability)",
     "pol_keywords": ["mombasa", "mombasa port", "kenya", "dar es salaam/mombasa"],
     "pod_keywords": ["karachi", "karachi port", "pakistan"],
     "origin_city_keywords": ["mombasa", "nairobi"],
     "destination_city_keywords": ["karachi"],
-    "path": "Mombasa Port (Kenya) → (Sea) → Karachi Port (Pakistan).",
+    "path": "Mombasa Port (Kenya) → (Sea, possibly via transshipment hub) → Karachi Port (Pakistan).",
     "must_borders": [],
     "transit_time_days": { "min": 14, "max": 25 },
-    "route_status": "open"
+    "route_status": "not sure"
   },
   {
     "id": "R25",
@@ -297,7 +297,7 @@
     "path": "Dar es Salaam Port (Tanzania) → (Sea) → Jebel Ali Port (UAE) → (Sea) → Bandar Abbas Port (Iran) → Sarakhs (Iran/Turkmenistan) → Central Asia (via Turkmenistan/Kazakhstan) → Tashkent or Almaty.",
     "must_borders": ["sarakhs"],
     "transit_time_days": { "min": 20, "max": 35 },
-    "route_status": "open"
+    "route_status": "not sure"
   },
   {
     "id": "R26",
@@ -309,19 +309,19 @@
     "path": "Rotterdam Port (Netherlands) → (Sea) → Jebel Ali Port (UAE).",
     "must_borders": [],
     "transit_time_days": { "min": 18, "max": 30 },
-    "route_status": "open"
+    "route_status": "not sure"
   },
   {
     "id": "R27",
-    "title": "Rotterdam to Karachi (Sea)",
+    "title": "Rotterdam to Karachi (Sea, indirect / transshipment route)",
     "pol_keywords": ["rotterdam", "netherlands"],
     "pod_keywords": ["karachi", "karachi port", "pakistan"],
     "origin_city_keywords": ["rotterdam", "amsterdam"],
     "destination_city_keywords": ["karachi"],
-    "path": "Rotterdam Port (Netherlands) → (Sea) → Karachi Port (Pakistan).",
+    "path": "Rotterdam Port (Netherlands) → (Sea via transshipment hub / indirect service) → Karachi Port (Pakistan).",
     "must_borders": [],
     "transit_time_days": { "min": 22, "max": 38 },
-    "route_status": "open"
+    "route_status": "not sure"
   },
   {
     "id": "R28",
@@ -361,15 +361,15 @@
   },
   {
     "id": "R31",
-    "title": "Mersin Port to Bandar Abbas Port (Sea) (Turkey → Iran)",
+    "title": "Mersin Port to Bandar Abbas Port (Sea, indirect / not confirmed direct) (Turkey → Iran)",
     "pol_keywords": ["mersin", "mersin port", "turkey"],
     "pod_keywords": ["bandar abbas", "bandar abbas port", "iran"],
     "origin_city_keywords": ["mersin", "istanbul"],
     "destination_city_keywords": ["bandar abbas"],
-    "path": "Mersin Port (Turkey) → (Sea) → Bandar Abbas Port (Iran).",
+    "path": "Mersin Port (Turkey) → (Sea, possibly via transshipment / indirect service) → Bandar Abbas Port (Iran).",
     "must_borders": [],
     "transit_time_days": { "min": 12, "max": 22 },
-    "route_status": "open"
+    "route_status": "not sure"
   },
   {
     "id": "R32",
@@ -381,7 +381,7 @@
     "path": "Aqaba Port (Jordan) → (Road via Jordan/Saudi border) → Saudi Arabia (Dammam/Jeddah/Riyadh region).",
     "must_borders": [],
     "transit_time_days": { "min": 3, "max": 7 },
-    "route_status": "open"
+    "route_status": "not used"
   },
   {
     "id": "R33",
@@ -549,7 +549,7 @@
     "path": "Karachi (Pakistan) → Gwadar (Pakistan) → Bandar Abbas Port (Iran) → Tehran → Mashhad → Sarakhs Border (Iran/Turkmenistan) → Mary (Turkmenistan) → Bukhara (Uzbekistan) → Tashkent (Uzbekistan).",
     "must_borders": ["bandar abbas", "sarakhs", "bukhara", "tashkent"],
     "transit_time_days": { "min": 14, "max": 18 },
-    "route_status": "closed"
+    "route_status": "not sure"
   },
   {
     "id": "R47",
@@ -561,7 +561,7 @@
     "path": "Karachi → Gwadar → Bandar Abbas Port (Iran) → Tehran → Bandar Anzali (Iran) → (Caspian Sea ferry) → Aktau (Kazakhstan) → Almaty (Kazakhstan).",
     "must_borders": ["bandar abbas", "bandar anzali", "aktau", "almaty"],
     "transit_time_days": { "min": 18, "max": 22 },
-    "route_status": "open"
+    "route_status": "not sure"
   },
   {
     "id": "R48",
@@ -573,7 +573,7 @@
     "path": "Karachi → Peshawar → Torkham Border → Kabul → Kunduz → Sher Khan Bandar (Afghanistan/Tajikistan) → Dushanbe (Tajikistan).",
     "must_borders": ["torkham", "sher khan bandar", "dushanbe"],
     "transit_time_days": { "min": 9, "max": 11 },
-    "route_status": "open"
+    "route_status": "closed"
   },
   {
     "id": "R49",
@@ -585,7 +585,7 @@
     "path": "Karachi → Islamabad → Gilgit → Khunjerab Pass (Pakistan/China) → Kashgar (China) → Irkeshtam Pass (China/Kyrgyzstan) → Osh → Bishkek (Kyrgyzstan).",
     "must_borders": ["khunjerab", "irkeshtam", "osh", "bishkek"],
     "transit_time_days": { "min": 12, "max": 16 },
-    "route_status": "open"
+    "route_status": "not used"
   },
   {
     "id": "R50",
@@ -597,7 +597,7 @@
     "path": "Jebel Ali Port (UAE) → Bandar Abbas Port (Iran) → Tehran → Sarakhs (Iran/Turkmenistan) → Ashgabat (Turkmenistan) → Aktau (Kazakhstan) → Almaty (Kazakhstan).",
     "must_borders": ["bandar abbas", "sarakhs", "aktau", "almaty"],
     "transit_time_days": { "min": 16, "max": 20 },
-    "route_status": "open"
+    "route_status": "not sure"
   },
   {
     "id": "R51",
@@ -609,7 +609,7 @@
     "path": "Jebel Ali Port (UAE) → Bandar Abbas Port (Iran) → Mashhad → Sarakhs (Iran/Turkmenistan) → Mary (Turkmenistan) → Bukhara (Uzbekistan) → Tashkent (Uzbekistan).",
     "must_borders": ["bandar abbas", "sarakhs", "bukhara", "tashkent"],
     "transit_time_days": { "min": 14, "max": 18 },
-    "route_status": "open"
+    "route_status": "not sure"
   },
   {
     "id": "R52",
@@ -657,7 +657,7 @@
     "path": "Kashgar (China) → Wakhjir Pass / Wakhan Corridor (China/Afghanistan) → Badakhshan → Faizabad (Afghanistan).",
     "must_borders": ["wakhjir pass", "wakhan"],
     "transit_time_days": { "min": 7, "max": 12 },
-    "route_status": "closed"
+    "route_status": "not used"
   },
   {
     "id": "R56",
@@ -681,30 +681,18 @@
     "path": "Kashgar (China) → Khunjerab Pass (China/Pakistan) → Gilgit → Islamabad → Peshawar → Torkham Border (Pakistan/Afghanistan) → Jalalabad → Kabul (Afghanistan).",
     "must_borders": ["khunjerab", "torkham"],
     "transit_time_days": { "min": 10, "max": 16 },
-    "route_status": "variable"
-  },
-    {
-    "id": "R58",
-    "title": "Kashgar to Tashkent via Kyrgyzstan (China → Kyrgyzstan → Uzbekistan)",
-    "pol_keywords": ["kashgar", "xinjiang", "china"],
-    "pod_keywords": ["tashkent", "uzbekistan"],
-    "origin_city_keywords": ["kashgar"],
-    "destination_city_keywords": ["tashkent", "andijan"],
-    "path": "Kashgar (China) → Irkeshtam Pass (China/Kyrgyzstan) → Osh → Andijan (Uzbekistan) → Tashkent (Uzbekistan).",
-    "must_borders": ["irkeshtam"],
-    "transit_time_days": { "min": 8, "max": 14 },
-    "route_status": "open"
+    "route_status": "closed"
   },
   {
-    "id": "R59",
-    "title": "Kashgar to Tashkent via Torugart (China → Kyrgyzstan → Uzbekistan)",
-    "pol_keywords": ["kashgar", "china", "xinjiang"],
+    "id": "R58",
+    "title": "Kashgar to Tashkent via Kyrgyzstan and Wuqia border corridor (China → Kyrgyzstan → Uzbekistan)",
+    "pol_keywords": ["kashgar", "xinjiang", "china", "wuqia"],
     "pod_keywords": ["tashkent", "uzbekistan"],
-    "origin_city_keywords": ["kashgar"],
-    "destination_city_keywords": ["tashkent", "osh"],
-    "path": "Kashgar (China) → Torugart Pass (China/Kyrgyzstan) → Naryn → Osh → Uzbekistan → Tashkent (Uzbekistan).",
-    "must_borders": ["torugart"],
-    "transit_time_days": { "min": 9, "max": 15 },
+    "origin_city_keywords": ["kashgar", "wuqia"],
+    "destination_city_keywords": ["tashkent", "andijan"],
+    "path": "Kashgar (China) → Wuqia / Irkeshtam border corridor (China/Kyrgyzstan) → Osh → Andijan (Uzbekistan) → Tashkent (Uzbekistan).",
+    "must_borders": ["wuqia", "irkeshtam"],
+    "transit_time_days": { "min": 8, "max": 14 },
     "route_status": "open"
   },
   {
@@ -717,7 +705,7 @@
     "path": "Kashgar (China) → Kulma Pass (China/Tajikistan) → Murghab → Dushanbe → Khujand → Uzbekistan → Tashkent (Uzbekistan).",
     "must_borders": ["kulma"],
     "transit_time_days": { "min": 10, "max": 16 },
-    "route_status": "variable"
+    "route_status": "not used"
   },
   {
     "id": "R61",
@@ -729,6 +717,6 @@
     "path": "Kashgar (China) → Wakhan Corridor (China/Afghanistan) → Badakhshan → Mazar-i-Sharif → Hairatan Border (Afghanistan/Uzbekistan) → Termez → Tashkent (Uzbekistan).",
     "must_borders": ["wakhan", "hairatan"],
     "transit_time_days": { "min": 12, "max": 20 },
-    "route_status": "closed"
+    "route_status": "not used"
   }
 ]
