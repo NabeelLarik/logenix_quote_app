@@ -1112,10 +1112,15 @@ def get_strict_quotes(
     df["_pol_key"] = df[POL_COL].apply(canon)
     df["_pod_key"] = df[POD_COL].apply(canon)
 
-    df_match = df[(df["_pol_key"] == pol_key) & (df["_pod_key"] == pod_key)].copy()
+    # Base match used for shipping-line options:
+    # user wants ALL shipping lines where only POL + POD match
+    df_pol_pod = df[(df["_pol_key"] == pol_key) & (df["_pod_key"] == pod_key)].copy()
 
-    if df_match.empty:
+    if df_pol_pod.empty:
         return [], None, f"No matching rates found for POL='{pol_port}' and POD='{pod_port}'."
+
+    # Working dataframe for strict quote selection
+    df_match = df_pol_pod.copy()
 
     # -------------------------
     # ✅ NEW: Route filter using Excel column 'routes'
@@ -1163,14 +1168,22 @@ def get_strict_quotes(
     # -------------------------
     # Ocean dropdown options (valid rows only)
     # -------------------------
-    ship_line_col = find_col_case_insensitive(df_match, "Shipping Line Name")
-    of20_col = find_col_case_insensitive(df_match, "Ocean Freight (20ft)_charges")
-    of40_col = find_col_case_insensitive(df_match, "Ocean Freight (40ft)_charges")
+    # -------------------------
+    # Ocean dropdown options (ALL POL/POD-matching lines, including expired)
+    # -------------------------
+    # IMPORTANT:
+    # Build these options from df_pol_pod, not from strictly filtered df_match.
+    # User wants all shipping lines where POL + POD match, even if expired.
+    ocean_src_df = df_pol_pod.copy()
 
-    # Ocean validity: in your sheet it's the validity column right after Ocean Freight (40ft)_charges
+    ship_line_col = find_col_case_insensitive(ocean_src_df, "Shipping Line Name")
+    of20_col = find_col_case_insensitive(ocean_src_df, "Ocean Freight (20ft)_charges")
+    of40_col = find_col_case_insensitive(ocean_src_df, "Ocean Freight (40ft)_charges")
+
+    # Ocean validity is usually the column right after Ocean Freight (40ft)_charges
     validity_col = None
     if of40_col:
-        cols_list = list(df_match.columns)
+        cols_list = list(ocean_src_df.columns)
         try:
             idx40 = cols_list.index(of40_col)
             if idx40 + 1 < len(cols_list) and "validity" in canon(cols_list[idx40 + 1]):
@@ -1178,48 +1191,85 @@ def get_strict_quotes(
         except Exception:
             validity_col = None
 
-    # fallback only if not found (but adjacency is the main method)
+    # Fallback only if adjacency not found
     if not validity_col:
         validity_col = (
-            find_col_case_insensitive(df_match, "Rates Validity")
-            or find_col_case_insensitive(df_match, "Validity")
-            or find_col_case_insensitive(df_match, "validity")
+            find_col_case_insensitive(ocean_src_df, "Rates Validity")
+            or find_col_case_insensitive(ocean_src_df, "Validity")
+            or find_col_case_insensitive(ocean_src_df, "validity")
         )
 
     ocean_freight_options: List[Dict[str, Any]] = []
-    today_opt = date.today()
 
-    if ship_line_col and (of20_col or of40_col) and validity_col:
-        for _, rr in df_match.iterrows():
+    if ship_line_col and (of20_col or of40_col):
+        # Forward-fill common grouped columns if sheet has merged/grouped style rows
+        ocean_src_df = ocean_src_df.copy()
+        ocean_src_df[ship_line_col] = ocean_src_df[ship_line_col].ffill()
+
+        if of20_col:
+            ocean_src_df[of20_col] = ocean_src_df[of20_col]
+        if of40_col:
+            ocean_src_df[of40_col] = ocean_src_df[of40_col]
+
+        for _, rr in ocean_src_df.iterrows():
             line_name = str(rr.get(ship_line_col, "")).strip()
             if not line_name:
-                continue
-
-            vd = parse_date_any(rr.get(validity_col))
-            if vd is None or vd < today_opt:
                 continue
 
             n20 = parse_price_to_float(rr.get(of20_col)) if of20_col else None
             n40 = parse_price_to_float(rr.get(of40_col)) if of40_col else None
 
+            # Skip rows that have no ocean amounts at all
+            if n20 is None and n40 is None:
+                continue
+
+            validity_text = ""
+            validity_status = "na"
+
+            if validity_col:
+                validity_status, validity_fmt, _ = validity_status_and_text(rr.get(validity_col))
+                validity_text = validity_fmt or ""
+
             ocean_freight_options.append({
                 "line": line_name,
-                "validity": vd.strftime("%d-%b-%Y"),
+                "validity": validity_text,
+                "validity_status": validity_status,
                 "amt20": fmt_money(n20) if n20 is not None else "N/A",
                 "amt40": fmt_money(n40) if n40 is not None else "N/A",
                 "amt20_num": float(n20) if n20 is not None else 0.0,
                 "amt40_num": float(n40) if n40 is not None else 0.0,
             })
 
+        # Deduplicate identical line/rate/validity entries
         seen = set()
         dedup = []
         for o in ocean_freight_options:
-            k = (canon(o["line"]), o["validity"], o["amt20"], o["amt40"])
+            k = (
+                canon(o["line"]),
+                o["validity"],
+                o["validity_status"],
+                o["amt20"],
+                o["amt40"]
+            )
             if k in seen:
                 continue
             seen.add(k)
             dedup.append(o)
-        ocean_freight_options = sorted(dedup, key=lambda x: canon(x["line"]))
+
+        # Sort by line first, then validity status
+        def _opt_rank(opt: Dict[str, Any]) -> Tuple[str, int, str]:
+            vs = canon(opt.get("validity_status", "na"))
+            if vs == "valid":
+                rank = 0
+            elif vs == "expired":
+                rank = 1
+            elif vs == "unknown":
+                rank = 2
+            else:
+                rank = 3
+            return (canon(opt.get("line", "")), rank, opt.get("validity", ""))
+
+        ocean_freight_options = sorted(dedup, key=_opt_rank)
 
     # -------------------------
     # Address matching helper
@@ -1409,6 +1459,7 @@ def get_strict_quotes(
                     "name": "Shipping Line Name",
                     "cost": line_val,
                     "validity": "",
+                    "validity_status": "na",
                     "can_remove": False,
                     "include_in_total": False,
                     "cost_num": 0.0,
@@ -1418,7 +1469,8 @@ def get_strict_quotes(
                     "change_type": "ocean_freight_line",
                     "ocean_size": "",
                     "grand_kind": "",
-                    "options": ocean_freight_options
+                    "options": ocean_freight_options,
+                    "selected_line": line_val
                 })
 
         # -------------------------

@@ -1537,12 +1537,13 @@
           <option value="" selected disabled>Select Shipping Line</option>
           {% for opt in row.options %}
             <option
-              value="{{ opt.line }}"
-              data-line="{{ opt.line }}"
-              data-amt20="{{ opt.amt20 }}"
-              data-amt40="{{ opt.amt40 }}"
-              data-validity="{{ opt.validity }}"
-            >
+  value="{{ opt.line }}"
+  data-line="{{ opt.line }}"
+  data-amt20="{{ opt.amt20 }}"
+  data-amt40="{{ opt.amt40 }}"
+  data-validity="{{ opt.validity }}"
+  data-validity_status="{{ opt.validity_status }}"
+>
               {{ opt.line }} — 20ft: {{ opt.amt20 }} | 40ft: {{ opt.amt40 }} | Valid: {{ opt.validity }}
             </option>
           {% endfor %}
@@ -2539,6 +2540,7 @@ document.addEventListener("change", function (e) {
   const amt20 = opt.dataset.amt20 || "$0.00";
   const amt40 = opt.dataset.amt40 || "$0.00";
   const validity = opt.dataset.validity || "";
+  const validityStatus = opt.dataset.validity_status || "na";
 
   const table = sel.closest("table.quote-table");
   if (!table) return;
@@ -2563,16 +2565,26 @@ document.addEventListener("change", function (e) {
     row.dataset.costnum = String(numFromMoneyText(moneyText));
   }
 
-  function setRowValidity(exactName, dateText) {
-    const row = findRowByName(exactName);
-    if (!row) return;
+ function setRowValidity(exactName, dateText, status) {
+  const row = findRowByName(exactName);
+  if (!row) return;
 
-    const vCell = row.querySelectorAll("td")[2];
-    if (!vCell) return;
+  const vCell = row.querySelectorAll("td")[2];
+  if (!vCell) return;
 
-    // Keep your previous badge structure if you like; simplest:
-    vCell.textContent = (dateText || "").trim();
+  const txt = (dateText || "").trim();
+
+  let badge = "";
+  if (status === "valid") {
+    badge = '<span class="badge-valid ms-2">valid</span>';
+  } else if (status === "expired") {
+    badge = '<span class="badge-expired ms-2">expired</span>';
+  } else if (status === "unknown") {
+    badge = '<span class="badge-unknown ms-2">unknown</span>';
   }
+
+  vCell.innerHTML = txt + (txt ? " " : "") + badge;
+}
 
   // "Shipping Line Name" row: its cost cell shows the chosen line text
   setRowCost("Shipping Line Name", line);
@@ -2582,8 +2594,8 @@ document.addEventListener("change", function (e) {
   setRowCost("Ocean Freight (40ft)_charges", amt40);
 
   // Validity (optional):
-  setRowValidity("Ocean Freight (20ft)_charges", validity);
-  setRowValidity("Ocean Freight (40ft)_charges", validity);
+  setRowValidity("Ocean Freight (20ft)_charges", validity, validityStatus);
+  setRowValidity("Ocean Freight (40ft)_charges", validity, validityStatus);
 
   // Recompute totals
   recomputeTwoGrandTotalsForTable(table);
