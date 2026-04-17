@@ -7,6 +7,7 @@ import re
 import json
 import requests
 import io
+import time
 from datetime import datetime, date
 from typing import Optional, Tuple, List, Dict, Any
 
@@ -201,7 +202,7 @@ def download_excel_from_onedrive(file_path: str) -> bytes:
     return r.content
 
 
-def upload_excel_to_onedrive(file_path: str, content: bytes):
+def upload_excel_to_onedrive(file_path: str, content: bytes, retries: int = 3, retry_delay: float = 1.5):
     token = get_access_token()
     url = _graph_drive_content_url(file_path)
 
@@ -210,8 +211,26 @@ def upload_excel_to_onedrive(file_path: str, content: bytes):
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     }
 
-    r = requests.put(url, headers=headers, data=content, timeout=120)
-    r.raise_for_status()
+    last_err = None
+
+    for attempt in range(retries):
+        try:
+            r = requests.put(url, headers=headers, data=content, timeout=120)
+            r.raise_for_status()
+            return
+        except requests.exceptions.HTTPError as e:
+            last_err = e
+            status = e.response.status_code if e.response is not None else None
+
+            # Common temporary Graph/OneDrive conflicts
+            if status in (409, 423, 429, 500, 502, 503, 504):
+                if attempt < retries - 1:
+                    time.sleep(retry_delay * (attempt + 1))
+                    continue
+            raise
+
+    if last_err:
+        raise last_err
 
 
 def read_queries_df_from_onedrive() -> pd.DataFrame:
@@ -233,6 +252,54 @@ def canon(s: Any) -> str:
     s = re.sub(r"\s+", " ", s)
     return s
 
+def normalize_location_key(s: Any) -> str:
+    """
+    Normalizes ports / cities / place text so:
+    'Shanghai' matches 'Shanghai Port'
+    'Karachi' matches 'Karachi Port'
+    'Port of Karachi' matches 'Karachi Port'
+    """
+    t = canon(s)
+    if not t:
+        return ""
+
+    t = t.replace("/", " ").replace(",", " ")
+    t = re.sub(
+        r"\b(port of discharge|port of destination|port of loading|port of load|"
+        r"seaport|sea port|dry port|port|harbor|harbour|terminal|pod|pol)\b",
+        " ",
+        t,
+        flags=re.IGNORECASE,
+    )
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
+
+
+def flexible_text_match(user_value: Any, sheet_value: Any) -> bool:
+    """
+    Flexible match for city/country/address-like text.
+    Accept exact match OR one-side-contained match.
+    """
+    u = canon(user_value)
+    s = canon(sheet_value)
+
+    if not u or not s:
+        return False
+
+    return u == s or u in s or s in u
+
+
+def flexible_location_match(user_value: Any, sheet_value: Any) -> bool:
+    """
+    Flexible match for POL/POD/port-like values.
+    """
+    u = normalize_location_key(user_value)
+    s = normalize_location_key(sheet_value)
+
+    if not u or not s:
+        return False
+
+    return u == s or u in s or s in u
 
 def norm_text(x) -> str:
     if x is None or pd.isna(x):
@@ -491,136 +558,109 @@ def load_routes_json() -> List[Dict[str, Any]]:
     try:
         with open(ROUTES_JSON_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-        if isinstance(data, list):
-            out: List[Dict[str, Any]] = []
-            for r in data:
-                if isinstance(r, dict) and r.get("id"):
-                    out.append(r)
-            return out
-        return []
+
+        routes = data.get("routes") if isinstance(data, dict) else data
+        if not isinstance(routes, list):
+            return []
+
+        out: List[Dict[str, Any]] = []
+        for r in routes:
+            if isinstance(r, dict) and r.get("id"):
+                out.append(r)
+        return out
     except Exception:
         return []
 
 
-def route_base_match(
-    pol: str,
-    pod: str,
-    route: dict,
-    origin_city: str = "",
-    destination_city: str = "",
-    transit_borders: Optional[List[str]] = None
-) -> Tuple[bool, bool, int]:
-    """
-    Match using:
-      - pol_keywords
-      - pod_keywords
-      - origin_city_keywords
-      - destination_city_keywords
-      - must_borders (optional score boost if user provided matching borders)
+def normalize_route_type(val: Any) -> str:
+    s = canon(val)
+    allowed = {
+        "pickup_to_pol_to_pod_to_final",
+        "pol_to_pod_to_final",
+        "pol_to_pod",
+        "city_to_country_to_city",
+        "city_to_pol_to_pod",
+        "pol_to_city",
+        "city_to_city",
+        "city_to_pol_to_pod_to_city",
+        "city_to_pol",
+        "pol_to_pod_to_city",
+        "city_to_pod_to_city",
+    }
+    return s if s in allowed else "city_to_city"
 
-    Returns:
-      (matched, is_reverse, score)
 
-    Rules:
-      - POL + POD match is mandatory
-      - origin/destination city improve route score if user provided them
-      - transit border match improves route score if user provided borders
-    """
-    transit_borders = transit_borders or []
+def normalize_route_modes(route: Dict[str, Any]) -> List[str]:
+    raw = route.get("modes")
+    if isinstance(raw, list):
+        vals = [canon(x) for x in raw if canon(x)]
+    elif raw:
+        vals = [canon(raw)]
+    else:
+        vals = []
 
-    pol_s = canon(pol)
-    pod_s = canon(pod)
-    org_s = canon(origin_city)
-    dst_s = canon(destination_city)
-    user_borders = [canon(x) for x in transit_borders if canon(x)]
+    cleaned: List[str] = []
+    for v in vals:
+        if v in {"land", "sea", "rail"} and v not in cleaned:
+            cleaned.append(v)
 
-    pol_keywords = route.get("pol_keywords", []) or []
-    pod_keywords = route.get("pod_keywords", []) or []
-    origin_city_keywords = route.get("origin_city_keywords", []) or []
-    destination_city_keywords = route.get("destination_city_keywords", []) or []
-    must_borders = route.get("must_borders", []) or []
+    if cleaned:
+        return cleaned
 
-    def any_match(text: str, keywords: List[str]) -> bool:
-        return any(canon(k) and canon(k) in text for k in keywords)
+    # fallback by route type
+    rt = normalize_route_type(route.get("route_type"))
 
-    def border_score(route_borders: List[str], user_border_values: List[str]) -> int:
-        if not route_borders or not user_border_values:
-            return 0
-        score = 0
-        rb = [canon(x) for x in route_borders if canon(x)]
-        for ub in user_border_values:
-            if any(r and (r in ub or ub in r) for r in rb):
-                score += 20
-        return score
+    if rt == "pol_to_pod":
+        return ["sea"]
 
-    # -------------------------
-    # Forward direction
-    # -------------------------
-    pol_ok = any_match(pol_s, pol_keywords)
-    pod_ok = any_match(pod_s, pod_keywords)
+    if rt == "pol_to_city":
+        return ["land"]
 
-    origin_ok = False
-    dest_ok = False
+    if rt == "pol_to_pod_to_city":
+        return ["land", "sea"]
 
-    if org_s and origin_city_keywords:
-        origin_ok = any_match(org_s, origin_city_keywords)
+    if rt == "city_to_city":
+        return ["land"]
 
-    if dst_s and destination_city_keywords:
-        dest_ok = any_match(dst_s, destination_city_keywords)
+    if rt == "city_to_country_to_city":
+        return ["land"]
 
-    forward_score = 0
-    if pol_ok:
-        forward_score += 100
-    if pod_ok:
-        forward_score += 100
-    if origin_ok:
-        forward_score += 35
-    if dest_ok:
-        forward_score += 35
-    forward_score += border_score(must_borders, user_borders)
+    if rt == "city_to_pol":
+        return ["land"]
 
-    forward_matched = pol_ok and pod_ok
+    if rt == "city_to_pol_to_pod":
+        return ["land", "sea"]
 
-    # -------------------------
-    # Reverse direction
-    # -------------------------
-    pol_ok_rev = any_match(pod_s, pol_keywords)
-    pod_ok_rev = any_match(pol_s, pod_keywords)
+    if rt == "city_to_pol_to_pod_to_city":
+        return ["land", "sea"]
 
-    origin_ok_rev = False
-    dest_ok_rev = False
+    if rt == "pickup_to_pol_to_pod_to_final":
+        return ["land", "sea"]
 
-    if org_s and destination_city_keywords:
-        origin_ok_rev = any_match(org_s, destination_city_keywords)
+    if rt == "pol_to_pod_to_final":
+        return ["land", "sea"]
 
-    if dst_s and origin_city_keywords:
-        dest_ok_rev = any_match(dst_s, origin_city_keywords)
+    return ["sea"]
 
-    reverse_score = 0
-    if pol_ok_rev:
-        reverse_score += 100
-    if pod_ok_rev:
-        reverse_score += 100
-    if origin_ok_rev:
-        reverse_score += 35
-    if dest_ok_rev:
-        reverse_score += 35
-    reverse_score += border_score(must_borders, user_borders)
 
-    reverse_matched = pol_ok_rev and pod_ok_rev
+def route_mode_label(route: Dict[str, Any]) -> str:
+    modes = normalize_route_modes(route)
+    if not modes:
+        return ""
+    return " + ".join(m.title() for m in modes)
 
-    if forward_matched and reverse_matched:
-        if reverse_score > forward_score:
-            return True, True, reverse_score
-        return True, False, forward_score
 
-    if forward_matched:
-        return True, False, forward_score
-
-    if reverse_matched:
-        return True, True, reverse_score
-
-    return False, False, 0
+def route_status_label(route: Dict[str, Any]) -> str:
+    status = normalize_route_status(route.get("route_status"))
+    if status == "open":
+        return "Open"
+    if status == "not sure":
+        return "Not Sure"
+    if status == "not used":
+        return "Not Used"
+    if status == "closed":
+        return "Closed"
+    return "Open"
 
 
 def transit_time_key(route: Dict[str, Any]) -> Tuple[int, int]:
@@ -641,17 +681,426 @@ def transit_time_key(route: Dict[str, Any]) -> Tuple[int, int]:
     mx = safe_int(tt.get("max"))
     return (mn, mx)
 
+def route_specificity_rank(route: Dict[str, Any]) -> int:
+    """
+    Lower is better.
+    Prefer exact/specific routes over grouped/generic titles like:
+    'Shanghai / Ningbo / Qingdao ...'
+    """
+    title = str(route.get("title", "") or "")
+    path = str(route.get("path", "") or "")
+
+    rank = 0
+
+    # Penalize grouped titles/paths
+    if " / " in title:
+        rank += 2
+    if " / " in path.split("→")[0]:
+        rank += 1
+
+    # Prefer routes with fewer POL keywords
+    pol_keywords = route.get("pol_keywords") or []
+    if isinstance(pol_keywords, list):
+        if len(pol_keywords) >= 5:
+            rank += 2
+        elif len(pol_keywords) >= 3:
+            rank += 1
+
+    return rank
+
+def _norm_kw_value(val: Any, is_port: bool = False) -> str:
+    if is_port:
+        return normalize_location_key(val)
+    return canon(val)
+
+
+def _value_matches_keywords(value: Any, keywords: List[str], is_port: bool = False) -> bool:
+    v = _norm_kw_value(value, is_port=is_port)
+    if not v:
+        return False
+
+    for kw in (keywords or []):
+        k = _norm_kw_value(kw, is_port=is_port)
+        if not k:
+            continue
+        if v == k:
+            return True
+    return False
+
+
+def _path_segments(route: Dict[str, Any]) -> List[str]:
+    raw = str(route.get("path", "") or "").strip()
+    if not raw:
+        return []
+    parts = [p.strip() for p in raw.split("→")]
+    return [canon(p) for p in parts if canon(p)]
+
+
+def _segment_matches_keywords(segment: str, keywords: List[str], is_port: bool = False) -> bool:
+    if not segment:
+        return False
+
+    seg_cmp = normalize_location_key(segment) if is_port else canon(segment)
+    if not seg_cmp:
+        return False
+
+    for kw in (keywords or []):
+        kw_cmp = _norm_kw_value(kw, is_port=is_port)
+        if not kw_cmp:
+            continue
+
+        if seg_cmp == kw_cmp:
+            return True
+
+        if re.search(rf"(?<![a-z0-9]){re.escape(kw_cmp)}(?![a-z0-9])", seg_cmp):
+            return True
+
+    return False
+
+
+def _any_segment_matches_text(segments: List[str], value: str, is_port: bool = False) -> bool:
+    if not value:
+        return False
+    return any(_segment_matches_keywords(seg, [value], is_port=is_port) for seg in segments)
+
+
+def _find_segment_index(
+    segments: List[str],
+    keywords: List[str],
+    is_port: bool = False,
+    start_idx: int = 0
+) -> Optional[int]:
+    if not segments:
+        return None
+    for i in range(max(0, start_idx), len(segments)):
+        if _segment_matches_keywords(segments[i], keywords, is_port=is_port):
+            return i
+    return None
+
+
+def _route_structured_cities(route: Dict[str, Any], side_key: str) -> List[str]:
+    box = route.get(side_key) or {}
+    vals = box.get("cities") if isinstance(box, dict) else []
+    if not isinstance(vals, list):
+        return []
+    return [str(x).strip() for x in vals if str(x).strip()]
+
+
+def _route_structured_countries(route: Dict[str, Any], side_key: str) -> List[str]:
+    box = route.get(side_key) or {}
+    vals = box.get("countries") if isinstance(box, dict) else []
+    if not isinstance(vals, list):
+        return []
+    return [str(x).strip() for x in vals if str(x).strip()]
+
+
+def _route_matches_origin_country_strict(route: Dict[str, Any], origin_country: str) -> bool:
+    c = canon(origin_country)
+    if not c:
+        return False
+
+    structured = _route_structured_countries(route, "origin_city_country")
+    if structured:
+        return any(canon(x) == c for x in structured)
+
+    return _value_matches_keywords(
+        origin_country,
+        route.get("origin_country_keywords", []) or [],
+        is_port=False
+    )
+
+
+def _route_matches_origin_city_strict(route: Dict[str, Any], origin_city: str) -> bool:
+    c = canon(origin_city)
+    if not c:
+        return False
+
+    if _value_matches_keywords(origin_city, route.get("origin_city_keywords", []) or [], is_port=False):
+        return True
+
+    structured = _route_structured_cities(route, "origin_city_country")
+    if structured and any(canon(x) == c for x in structured):
+        return True
+
+    segments = _path_segments(route)
+    if segments and _segment_matches_keywords(segments[0], [origin_city], is_port=False):
+        return True
+
+    return False
+
+
+def _route_matches_pol_strict(route: Dict[str, Any], pol: str) -> bool:
+    if not normalize_location_key(pol):
+        return False
+    return _value_matches_keywords(pol, route.get("pol_keywords", []) or [], is_port=True)
+
+
+def _route_matches_pod_strict(route: Dict[str, Any], pod: str) -> bool:
+    if not normalize_location_key(pod):
+        return False
+    return _value_matches_keywords(pod, route.get("pod_keywords", []) or [], is_port=True)
+
+
+def _route_matches_destination_city_strict(route: Dict[str, Any], destination_city: str) -> bool:
+    c = canon(destination_city)
+    if not c:
+        return False
+
+    if _value_matches_keywords(destination_city, route.get("destination_city_keywords", []) or [], is_port=False):
+        return True
+
+    structured = _route_structured_cities(route, "destination_city_country")
+    if structured and any(canon(x) == c for x in structured):
+        return True
+
+    return False
+
+
+def _route_matches_destination_country_strict(route: Dict[str, Any], destination_country: str) -> bool:
+    c = canon(destination_country)
+    if not c:
+        return False
+
+    structured = _route_structured_countries(route, "destination_city_country")
+    if structured:
+        return any(canon(x) == c for x in structured)
+
+    return _value_matches_keywords(
+        destination_country,
+        route.get("destination_country_keywords", []) or [],
+        is_port=False
+    )
+
+
+def _first_segment_matches_origin_city(route: Dict[str, Any], origin_city: str) -> bool:
+    segments = _path_segments(route)
+    if not segments:
+        return False
+    return _segment_matches_keywords(segments[0], [origin_city], is_port=False)
+
+
+def _first_segment_matches_pol(route: Dict[str, Any], pol: str) -> bool:
+    segments = _path_segments(route)
+    if not segments:
+        return False
+    first_seg = segments[0]
+    return (
+        _segment_matches_keywords(first_seg, [pol], is_port=True)
+        or _segment_matches_keywords(first_seg, route.get("pol_keywords", []) or [], is_port=True)
+    )
+
+
+def _last_segment_matches_location_text(route: Dict[str, Any], value: str, is_port: bool = False) -> bool:
+    segments = _path_segments(route)
+    if not segments:
+        return False
+
+    last_seg = segments[-1]
+    if _segment_matches_keywords(last_seg, [value], is_port=is_port):
+        return True
+
+    # If end is a city that represents the POD/POL location
+    structured_dest_cities = _route_structured_cities(route, "destination_city_country")
+    if structured_dest_cities and _segment_matches_keywords(last_seg, structured_dest_cities, is_port=False):
+        return True
+
+    return False
+
+
+def _last_segment_matches_destination_city(route: Dict[str, Any], destination_city: str) -> bool:
+    segments = _path_segments(route)
+    if not segments:
+        return False
+
+    last_seg = segments[-1]
+
+    if _segment_matches_keywords(last_seg, [destination_city], is_port=False):
+        return True
+
+    structured = _route_structured_cities(route, "destination_city_country")
+    if structured and _segment_matches_keywords(last_seg, structured, is_port=False):
+        return any(canon(x) == canon(destination_city) for x in structured)
+
+    return False
+
+
+def _last_segment_matches_destination_country(route: Dict[str, Any], destination_country: str) -> bool:
+    if not _route_matches_destination_country_strict(route, destination_country):
+        return False
+
+    segments = _path_segments(route)
+    if not segments:
+        return False
+
+    last_seg = segments[-1]
+
+    if _segment_matches_keywords(last_seg, [destination_country], is_port=False):
+        return True
+
+    structured_cities = _route_structured_cities(route, "destination_city_country")
+    if structured_cities and _segment_matches_keywords(last_seg, structured_cities, is_port=False):
+        return True
+
+    return False
+
+
+def _ordered_waypoint_match(route: Dict[str, Any], value: str, is_port: bool = False) -> bool:
+    segments = _path_segments(route)
+    if not segments or not value:
+        return False
+    return _any_segment_matches_text(segments, value, is_port=is_port)
+
+
+def _kw_score_exact(value: Any, keywords: List[str], pts: int, is_port: bool = False) -> int:
+    return pts if _value_matches_keywords(value, keywords, is_port=is_port) else 0
+
+
+def route_base_match(
+    pol: str,
+    pod: str,
+    route: dict,
+    origin_city: str = "",
+    origin_country: str = "",
+    destination_city: str = "",
+    destination_country: str = "",
+    transit_borders: Optional[List[str]] = None,
+    allow_reverse: bool = False
+) -> Tuple[bool, bool, int]:
+    transit_borders = transit_borders or []
+    segments = _path_segments(route)
+
+    user_has_origin_city = bool(canon(origin_city))
+    user_has_origin_country = bool(canon(origin_country))
+    user_has_pol = bool(normalize_location_key(pol))
+    user_has_pod = bool(normalize_location_key(pod))
+    user_has_destination_city = bool(canon(destination_city))
+    user_has_destination_country = bool(canon(destination_country))
+
+    # -------------------------
+    # HARD START MATCH
+    # -------------------------
+    start_ok = False
+    score = 0
+
+    if user_has_origin_country:
+        if not _route_matches_origin_country_strict(route, origin_country):
+            return False, False, 0
+        score += 40
+
+    if user_has_origin_city:
+        if not _route_matches_origin_city_strict(route, origin_city):
+            return False, False, 0
+        if not _first_segment_matches_origin_city(route, origin_city):
+            return False, False, 0
+        start_ok = True
+        score += 120
+
+    elif user_has_pol and not user_has_origin_country:
+        # pure POL start
+        if not _route_matches_pol_strict(route, pol):
+            return False, False, 0
+        if not _first_segment_matches_pol(route, pol):
+            return False, False, 0
+        start_ok = True
+        score += 120
+
+    elif user_has_origin_country:
+        # country-only start
+        start_ok = True
+        score += 20
+
+    else:
+        return False, False, 0
+
+    # -------------------------
+    # HARD END MATCH
+    # Priority:
+    # destination city > destination country > pod > pol-as-end
+    # -------------------------
+    end_ok = False
+
+    if user_has_destination_city:
+        if not _route_matches_destination_city_strict(route, destination_city):
+            return False, False, 0
+        if not _last_segment_matches_destination_city(route, destination_city):
+            return False, False, 0
+        end_ok = True
+        score += 120
+
+    elif user_has_destination_country:
+        if not _route_matches_destination_country_strict(route, destination_country):
+            return False, False, 0
+        if not _last_segment_matches_destination_country(route, destination_country):
+            return False, False, 0
+        end_ok = True
+        score += 90
+
+    elif user_has_pod:
+        # no destination given -> POD acts as endpoint
+        if not _last_segment_matches_location_text(route, pod, is_port=True):
+            return False, False, 0
+        end_ok = True
+        score += 80
+
+    elif user_has_pol and (user_has_origin_city or user_has_origin_country):
+        # origin -> POL query, POL acts as endpoint
+        if not _last_segment_matches_location_text(route, pol, is_port=True):
+            return False, False, 0
+        end_ok = True
+        score += 80
+
+    else:
+        end_ok = True
+
+    if not start_ok or not end_ok:
+        return False, False, 0
+
+    # -------------------------
+    # OPTIONAL WAYPOINTS / ALTERNATIVES
+    # POL and POD are soft when destination is also provided.
+    # This lets alternative routes still appear if start and end match.
+    # -------------------------
+    if user_has_pol and (user_has_origin_city or user_has_origin_country) and (user_has_destination_city or user_has_destination_country):
+        if _route_matches_pol_strict(route, pol) or _ordered_waypoint_match(route, pol, is_port=True):
+            score += 35
+        else:
+            score += 5  # alternative route without same POL
+
+    if user_has_pod and (user_has_destination_city or user_has_destination_country):
+        if _route_matches_pod_strict(route, pod) or _ordered_waypoint_match(route, pod, is_port=True):
+            score += 35
+        else:
+            score += 5  # alternative route without same POD
+
+    # transit borders: optional boost
+    border_keywords = (
+        route.get("must_borders")
+        or route.get("border_keywords")
+        or route.get("transit_border_keywords")
+        or []
+    )
+    if transit_borders and border_keywords:
+        for b in transit_borders:
+            if _value_matches_keywords(b, border_keywords, is_port=False):
+                score += 20
+                break
+
+    return True, False, int(score)
+
+
 def get_matching_routes(
     pol: str,
     pod: str,
     origin_city: str = "",
+    origin_country: str = "",
     destination_city: str = "",
+    destination_country: str = "",
     transit_borders: Optional[List[str]] = None
 ) -> Tuple[List[Dict[str, Any]], Optional[str]]:
     routes_src = load_routes_json()
-    matched: List[Dict[str, Any]] = []
-
     transit_borders = transit_borders or []
+
+    matched: List[Dict[str, Any]] = []
 
     for r in routes_src:
         ok, is_reverse, match_score = route_base_match(
@@ -659,8 +1108,11 @@ def get_matching_routes(
             pod=pod,
             route=r,
             origin_city=origin_city,
+            origin_country=origin_country,
             destination_city=destination_city,
-            transit_borders=transit_borders
+            destination_country=destination_country,
+            transit_borders=transit_borders,
+            allow_reverse=False,
         )
         if not ok:
             continue
@@ -668,26 +1120,34 @@ def get_matching_routes(
         rr = dict(r)
         rr["is_recent"] = False
         rr["is_custom"] = False
-        rr["is_reverse"] = bool(is_reverse)
-        rr["path"] = reverse_path(rr.get("path", "")) if is_reverse else rr.get("path", "")
+        rr["is_reverse"] = False
+        rr["route_type"] = normalize_route_type(rr.get("route_type"))
+        rr["modes"] = normalize_route_modes(rr)
+        rr["mode_label"] = route_mode_label(rr)
+        rr["status_label"] = route_status_label(rr)
+        rr["path"] = rr.get("path", "")
         rr["route_status"] = normalize_route_status(rr.get("route_status"))
         rr["_tt_key"] = transit_time_key(rr)
         rr["_match_score"] = int(match_score)
-
         matched.append(rr)
 
     if not matched:
         return [], None
+
     matched.sort(
         key=lambda x: (
             route_status_rank(x.get("route_status", "")),
             -int(x.get("_match_score", 0)),
+            route_specificity_rank(x),
             x.get("_tt_key", (10**9, 10**9))
         )
     )
-    best_id = matched[0].get("id")
-    return matched, best_id
 
+    best_id = matched[0].get("id")
+    for rr in matched:
+        rr["is_best"] = (rr.get("id") == best_id)
+
+    return matched, best_id
 # -------------------------
 # ROUTE HISTORY (DISABLED)
 # -------------------------
@@ -718,26 +1178,36 @@ def load_prices_df():
         return None
 
 
-def save_to_excel(record: Dict[str, Any]):
+def save_to_excel(record: Dict[str, Any]) -> Tuple[bool, str]:
     try:
-        # download existing file
-        content = download_excel_from_onedrive(ONEDRIVE_QUERIES_PATH)
-        df_existing = pd.read_excel(io.BytesIO(content))
+        try:
+            # download existing file
+            content = download_excel_from_onedrive(ONEDRIVE_QUERIES_PATH)
+            df_existing = pd.read_excel(io.BytesIO(content))
+        except Exception:
+            # file doesn't exist yet or cannot be read
+            df_existing = pd.DataFrame()
 
-    except Exception:
-        # file doesn't exist yet
-        df_existing = pd.DataFrame()
+        df_new = pd.DataFrame([record])
+        df_final = pd.concat([df_existing, df_new], ignore_index=True)
 
-    df_new = pd.DataFrame([record])
-    df_final = pd.concat([df_existing, df_new], ignore_index=True)
+        # save to memory
+        buffer = io.BytesIO()
+        df_final.to_excel(buffer, index=False)
+        buffer.seek(0)
 
-    # save to memory
-    buffer = io.BytesIO()
-    df_final.to_excel(buffer, index=False)
-    buffer.seek(0)
+        # upload back to OneDrive
+        upload_excel_to_onedrive(ONEDRIVE_QUERIES_PATH, buffer.read())
+        return True, ""
 
-    # upload back to OneDrive
-    upload_excel_to_onedrive(ONEDRIVE_QUERIES_PATH, buffer.read())
+    except requests.exceptions.HTTPError as e:
+        status = e.response.status_code if e.response is not None else None
+        if status == 409:
+            return False, "Could not save query to queries.xlsx because the file is busy or locked in OneDrive."
+        return False, f"Could not save query to queries.xlsx (HTTP {status})."
+
+    except Exception as e:
+        return False, f"Could not save query to queries.xlsx: {str(e)}"
 
 
 def get_commodities():
@@ -806,227 +1276,403 @@ def get_packaging_types():
 
 
 # -------------------------
-# GRAND TOTAL LOGIC
+# GRAND TOTAL / SIZE-AWARE LOGIC
 # -------------------------
 def is_charges_column(col_name: str) -> bool:
-    """
-    Treat normal *_charges as charges AND also treat these special cost columns as charges
-    so they get validity + remove button + included in grand total.
-    """
     c = canon(col_name)
-    if c.endswith("_charges"):
+
+    if not c:
+        return False
+
+    # UI-only / display-only items: never include in quote totals
+    if c in {
+        canon("incurrence_charges"),
+        canon("switch_bl_charges"),
+    }:
+        return False
+
+    if "_charges" in c:
         return True
 
-    # ✅ NEW: special columns that behave like charges
-    if c in {"labor_lifting_cost", "offloading_cost"}:
+    if c.endswith("_cost_20ft") or c.endswith("_cost_40ft"):
         return True
 
     return False
 
 
+def charge_size_bucket(col_name: str) -> str:
+    """
+    Returns:
+      '20' | '40' | '2x20' | 'common'
 
-def compute_grand_total(row: pd.Series, columns: List[str]) -> Tuple[float, bool]:
-    total = 0.0
-    found_any = False
+    Supports both naming styles, for example:
+      - Ocean Freight (20ft)_charges
+      - Ocean Freight (40ft)_charges
+      - Switch_BL_charges
+      - Labor_lifting_cost_40ft
+      - trucking_charges_2x20ft
+    """
+    c = canon(col_name)
 
-    # These trucking columns are calculated separately from the selected single row,
-    # so do NOT include them in the generic best-row grand-total calculation.
-    trucking_sheet_cols = {
+    # 2x20 first
+    if (
+        c.endswith("_2x20ft")
+        or "(2x20ft)" in c
+        or " 2x20ft" in c
+    ):
+        return "2x20"
+
+    # 20ft patterns
+    if (
+        c.endswith("_20ft")
+        or "(20ft)" in c
+        or "_20ft_" in c
+        or c.endswith("(20ft)_charges")
+        or c.endswith("(20ft)_cost")
+    ):
+        return "20"
+
+    # 40ft patterns
+    if (
+        c.endswith("_40ft")
+        or "(40ft)" in c
+        or "_40ft_" in c
+        or c.endswith("(40ft)_charges")
+        or c.endswith("(40ft)_cost")
+    ):
+        return "40"
+
+    return "common"
+
+
+def strip_size_suffix(col_name: str) -> str:
+    c = str(col_name).strip()
+    c_low = c.lower()
+
+    # normalize common size tokens used in your Excel headers
+    replacements = [
+        "(2x20ft)",
+        "(20ft)",
+        "(40ft)",
+        "_2x20ft",
+        "_20ft",
+        "_40ft",
+        " 2x20ft",
+        " 20ft",
+        " 40ft",
+    ]
+
+    out = c
+    for token in replacements:
+        out = re.sub(re.escape(token), "", out, flags=re.IGNORECASE)
+
+    # cleanup duplicated underscores / spaces
+    out = re.sub(r"__+", "_", out)
+    out = re.sub(r"\s{2,}", " ", out)
+    out = out.strip(" _-")
+    return out
+
+
+def is_trucking_charge_column(col_name: str) -> bool:
+    c = canon(col_name)
+    return c in {
         canon("trucking_charges_20ft"),
         canon("trucking_charges_40ft"),
         canon("trucking_charges_2x20ft"),
     }
 
+
+def get_selected_container_units(
+    size_20ft_count: int,
+    size_40ft_count: int,
+    size_2x20ft_count: int
+) -> Dict[str, int]:
+    total_20_units = int(size_20ft_count or 0) + (int(size_2x20ft_count or 0) * 2)
+    total_40_units = int(size_40ft_count or 0)
+
+    return {
+        "single_20_count": int(size_20ft_count or 0),
+        "count_2x20": int(size_2x20ft_count or 0),
+        "total_20_units": total_20_units,
+        "total_40_units": total_40_units,
+    }
+
+def build_sized_cost_display(rate: float, units: int) -> str:
+    """
+    Keep for shipment-total calculations where needed.
+    """
+    rate = float(rate or 0.0)
+    units = int(units or 0)
+
+    if units <= 0:
+        return "N/A"
+
+    total = rate * units
+    return fmt_money(total) or "$0.00"
+
+
+def build_rate_display(rate: float) -> str:
+    """
+    Show the exact picked Excel charge/rate in the quote row.
+    Do NOT multiply by quantity for visible line items.
+    """
+    return fmt_money(float(rate or 0.0)) or "$0.00"
+
+
+def build_flat_cost_display(amount: float) -> str:
+    return fmt_money(float(amount or 0.0)) or "$0.00"
+
+
+def compute_selected_shipment_total_for_row(
+    row: pd.Series,
+    columns: List[str],
+    total_20_units: int,
+    total_40_units: int
+) -> Tuple[float, bool]:
+    """
+    Size-aware best-row selector.
+    - 20ft columns => multiplied by total 20ft units
+    - 40ft columns => multiplied by total 40ft units
+    - common columns => counted once
+    - trucking columns => excluded (handled separately)
+    """
+    total = 0.0
+    found_any = False
+
     for col in columns:
         if not is_charges_column(col):
             continue
-        if canon(col) in trucking_sheet_cols:
+        if is_trucking_charge_column(col):
             continue
 
         num = parse_price_to_float(row.get(col))
         if num is None:
             continue
-        total += float(num)
-        found_any = True
+
+        bucket = charge_size_bucket(col)
+
+        if bucket == "20":
+            if total_20_units > 0:
+                total += float(num) * float(total_20_units)
+                found_any = True
+
+        elif bucket == "40":
+            if total_40_units > 0:
+                total += float(num) * float(total_40_units)
+                found_any = True
+
+        elif bucket == "2x20":
+            # no normal charge columns should use this pattern except trucking
+            continue
+
+        else:
+            total += float(num)
+            found_any = True
 
     return float(total), bool(found_any)
 
 
-def compute_grand_totals_for_df(df: pd.DataFrame, columns: List[str]) -> Tuple[List[float], List[bool]]:
+def compute_selected_shipment_totals_for_df(
+    df: pd.DataFrame,
+    columns: List[str],
+    total_20_units: int,
+    total_40_units: int
+) -> Tuple[List[float], List[bool]]:
     totals: List[float] = []
     has_any: List[bool] = []
+
     for _, row in df.iterrows():
-        t, ok = compute_grand_total(row, columns)
+        t, ok = compute_selected_shipment_total_for_row(
+            row=row,
+            columns=columns,
+            total_20_units=total_20_units,
+            total_40_units=total_40_units
+        )
         totals.append(float(t))
         has_any.append(bool(ok))
+
     return totals, has_any
-
-
-
-def _money_to_float(val) -> float:
-    """Parse $1,200.00 / 1200 / '  $200 ' into float. Returns 0.0 if empty/bad."""
-    if val is None:
-        return 0.0
-    s = str(val).strip()
-    if not s:
-        return 0.0
-    # keep digits, dot, minus
-    s2 = re.sub(r"[^0-9.\-]", "", s)
-    try:
-        return float(s2) if s2 else 0.0
-    except Exception:
-        return 0.0
-
-def _fmt_money(n: float) -> str:
-    return f"${n:,.2f}"
-
-def _parse_date_any(d):
-    """Parse many formats like 22/03/2026, 10-Jan-26, 2026-03-22."""
-    if d is None:
-        return None
-    s = str(d).strip()
-    if not s:
-        return None
-    dt = pd.to_datetime(s, errors="coerce", dayfirst=True)
-    if pd.isna(dt):
-        return None
-    return dt.date()
-
-from typing import Any
-
-def _normalize_container_size(s: Any) -> str:
-    """Normalize variations like '20ft ', ' 40FT', '2x20ft'. Accepts Any/None safely."""
-    if s is None or (isinstance(s, float) and pd.isna(s)):
-        return ""
-    t = str(s).strip().lower().replace(" ", "")
-    t = t.replace("feet", "ft")
-    if t in ("20", "20ft", "20f"):
-        return "20ft"
-    if t in ("40", "40ft", "40f"):
-        return "40ft"
-    if t in ("2x20", "2x20ft", "2*20ft", "2×20ft"):
-        return "2x20ft"
-    return str(s).strip()
-
-def _get_adjacent_validity_column(df: pd.DataFrame, base_col: str) -> str | None:
-    """
-    Your sheet has many 'validity' columns. We pick the validity column that is
-    immediately to the right of the given base column.
-    """
-    cols = list(df.columns)
-    if base_col not in cols:
-        return None
-    i = cols.index(base_col)
-    if i + 1 >= len(cols):
-        return None
-    nxt = cols[i + 1]
-    # in excel it is "validity" (duplicated) -> pandas makes validity, validity.1, validity.2 ...
-    if str(nxt).lower().startswith("validity"):
-        return nxt
-    return None
-
-def compute_trucking_total_and_validity(
+def compute_trucking_plan_and_totals(
     matched_df: pd.DataFrame,
-    qty_20: int,
-    qty_40: int,
-    qty_2x20: int,
+    single_20_count: int,
+    pair_20_count: int,
+    total_40_units: int,
+    per20_mode: str,
     today: date | None = None
 ):
     """
-    NEW trucking logic:
-    - Read ALL trucking charges from ONE selected row only
-    - Expected columns in the same row:
-        trucking_charges_20ft      + next validity column
-        trucking_charges_40ft      + next validity column
-        trucking_charges_2x20ft    + next validity column
-    - Multiply each by selected quantity
-    - Show ONE validity:
-        * if any selected size has valid date -> show soonest valid date
-        * else if all selected are expired -> show soonest expired date
-        * else blank
+    Business rule:
+    - 40ft trucking:
+        shipment = trucking_charges_40ft * total_40_units
+        per40 = trucking_charges_40ft
 
-    Returns:
-      total, validity_text, expired_sizes, used_dates, used_rates, missing_sizes
+    - 20ft single trucking:
+        shipment = trucking_charges_20ft * single_20_count
+        per20 = trucking_charges_20ft only when per20_mode == 'single20'
+
+    - 2x20ft trucking:
+        shipment = trucking_charges_2x20ft * pair_20_count
+        per20 = trucking_charges_2x20ft only when per20_mode == 'pair20'
+
+    IMPORTANT:
+    Search across all rows in matched_df, not just the first row, because trucking
+    values may be present on sibling rows of the same grouped quote.
     """
     if today is None:
         today = date.today()
 
-    wanted = []
-    if qty_20 and qty_20 > 0:
-        wanted.append(("20ft", qty_20, "trucking_charges_20ft"))
-    if qty_40 and qty_40 > 0:
-        wanted.append(("40ft", qty_40, "trucking_charges_40ft"))
-    if qty_2x20 and qty_2x20 > 0:
-        wanted.append(("2x20ft", qty_2x20, "trucking_charges_2x20ft"))
-
     if matched_df is None or matched_df.empty:
-        return 0.0, "", [], [], {}, [sz for (sz, _, _) in wanted]
+        return {
+            "shipment_total_20": 0.0,
+            "shipment_total_40": 0.0,
+            "per_unit_20": 0.0,
+            "per_unit_40": 0.0,
+            "rows": [],
+            "notes": ["Trucking row not found in selected quote row/group."],
+        }
 
-    # Use ONLY the first row of the passed dataframe
-    row = matched_df.iloc[0]
+    cols = list(matched_df.columns)
 
-    total = 0.0
-    used_dates: List[Tuple[str, str, Optional[date]]] = []
-    expired_sizes: List[str] = []
-    used_rates: Dict[str, float] = {}
-    missing_sizes: List[str] = []
+    def _get_rate_and_validity(base_col_name: str):
+        actual = find_col_case_insensitive(matched_df, base_col_name)
+        if not actual:
+            return None, "", "na"
 
-    df_cols = list(matched_df.columns)
+        # Search every row in the matched group until we find a positive rate
+        for _, rr in matched_df.iterrows():
+            raw_rate = rr.get(actual)
+            rate = parse_price_to_float(raw_rate)
+            if rate is None or float(rate) <= 0:
+                continue
 
-    for size_label, qty, charge_col_name in wanted:
-        charge_col = find_col_case_insensitive(matched_df, charge_col_name)
+            validity_text = ""
+            validity_status = "na"
+            try:
+                idx = cols.index(actual)
+                if idx + 1 < len(cols) and "validity" in canon(cols[idx + 1]):
+                    validity_status, validity_fmt, _ = validity_status_and_text(rr.get(cols[idx + 1]))
+                    validity_text = validity_fmt or ""
+            except Exception:
+                pass
 
-        if not charge_col:
-            used_rates[size_label] = 0.0
-            used_dates.append((size_label, "unknown", None))
-            missing_sizes.append(size_label)
-            continue
+            return float(rate), validity_text, validity_status
 
-        raw_rate = row.get(charge_col)
-        rate = _money_to_float(raw_rate)
+        return None, "", "na"
 
-        if rate <= 0:
-            used_rates[size_label] = 0.0
-            used_dates.append((size_label, "unknown", None))
-            missing_sizes.append(size_label)
-            continue
+    rows: List[Dict[str, Any]] = []
+    notes: List[str] = []
 
-        validity_col = None
-        try:
-            idx = df_cols.index(charge_col)
-            if idx + 1 < len(df_cols) and str(df_cols[idx + 1]).strip().lower().startswith("validity"):
-                validity_col = df_cols[idx + 1]
-        except Exception:
-            validity_col = None
+    shipment_total_20 = 0.0
+    shipment_total_40 = 0.0
 
-        vdate = _parse_date_any(row.get(validity_col)) if validity_col else None
-
-        if vdate is None:
-            status = "unknown"
-        elif vdate >= today:
-            status = "valid"
+    # 2x20ft trucking
+    if pair_20_count > 0:
+        rate, validity_text, validity_status = _get_rate_and_validity("trucking_charges_2x20ft")
+        if rate is not None:
+            shipment_total = float(rate) * float(pair_20_count)
+            shipment_total_20 += shipment_total
+            rows.append({
+                "name": "trucking_charges_2x20ft",
+                "cost": build_rate_display(rate),
+                "validity": validity_text,
+                "validity_status": validity_status,
+                "can_remove": True,
+                "include_in_total": True,
+                "cost_num": float(shipment_total),
+                "is_grand_total": False,
+                "change_type": "",
+                "options": [],
+                                # IMPORTANT BUSINESS RULE:
+                # When only 2x20ft is selected, displayed "Grand total per 20ft container"
+                # must EXCLUDE trucking_charges_2x20ft.
+                # Pair trucking is added only in shipment total:
+                #   trucking_charges_2x20ft * pair_20_count
+                "per20_num": 0.0,
+                "per40_num": 0.0,
+                "ship20_num": float(shipment_total),
+                "ship40_num": 0.0,
+                "ship_common_num": 0.0,
+                "grand_mode": "",
+                "grand_key": "",
+                "unit_count": pair_20_count,
+            })
         else:
-            status = "expired"
+            notes.append("2x20ft trucking rate not found.")
 
-        used_rates[size_label] = float(rate)
-        total += float(rate) * float(qty)
-        used_dates.append((size_label, status, vdate))
+    # single 20ft trucking
+    if single_20_count > 0:
+        rate, validity_text, validity_status = _get_rate_and_validity("trucking_charges_20ft")
+        if rate is not None:
+            shipment_total = float(rate) * float(single_20_count)
+            shipment_total_20 += shipment_total
+            rows.append({
+                "name": "trucking_charges_20ft",
+                "cost": build_rate_display(rate),
+                "validity": validity_text,
+                "validity_status": validity_status,
+                "can_remove": True,
+                "include_in_total": True,
+                "cost_num": float(shipment_total),
+                "is_grand_total": False,
+                "change_type": "",
+                "options": [],
+                "per20_num": float(rate) if per20_mode == "single20" else 0.0,
+                "per40_num": 0.0,
+                "ship20_num": float(shipment_total),
+                "ship40_num": 0.0,
+                "ship_common_num": 0.0,
+                "grand_mode": "",
+                "grand_key": "",
+                "unit_count": single_20_count,
+            })
+        else:
+            notes.append("Single 20ft trucking rate not found.")
 
-        if status == "expired":
-            expired_sizes.append(size_label)
+    # 40ft trucking
+    if total_40_units > 0:
+        rate, validity_text, validity_status = _get_rate_and_validity("trucking_charges_40ft")
+        if rate is not None:
+            shipment_total = float(rate) * float(total_40_units)
+            shipment_total_40 += shipment_total
+            rows.append({
+                "name": "trucking_charges_40ft",
+                "cost": build_rate_display(rate),
+                "validity": validity_text,
+                "validity_status": validity_status,
+                "can_remove": True,
+                "include_in_total": True,
+                "cost_num": float(shipment_total),
+                "is_grand_total": False,
+                "change_type": "",
+                "options": [],
+                "per20_num": 0.0,
+                "per40_num": float(rate),
+                "ship20_num": 0.0,
+                "ship40_num": float(shipment_total),
+                "ship_common_num": 0.0,
+                "grand_mode": "",
+                "grand_key": "",
+                "unit_count": total_40_units,
+            })
+        else:
+            notes.append("40ft trucking rate not found.")
 
-    valid_dates = [d for (_, st, d) in used_dates if st == "valid" and d is not None]
-    expired_dates = [d for (_, st, d) in used_dates if st == "expired" and d is not None]
+    per_unit_20 = 0.0
+    if per20_mode == "single20":
+        per_unit_20 = next((float(r.get("per20_num") or 0.0) for r in rows if canon(r.get("name")) == canon("trucking_charges_20ft")), 0.0)
+    elif per20_mode == "pair20":
+        per_unit_20 = next((float(r.get("per20_num") or 0.0) for r in rows if canon(r.get("name")) == canon("trucking_charges_2x20ft")), 0.0)
 
-    show_date = None
-    if valid_dates:
-        show_date = min(valid_dates)
-    elif expired_dates:
-        show_date = min(expired_dates)
+    per_unit_40 = next((float(r.get("per40_num") or 0.0) for r in rows if canon(r.get("name")) == canon("trucking_charges_40ft")), 0.0)
 
-    validity_str = show_date.strftime("%d-%b-%Y") if show_date else ""
-
-    return total, validity_str, expired_sizes, used_dates, used_rates, missing_sizes
+    return {
+        "shipment_total_20": float(shipment_total_20),
+        "shipment_total_40": float(shipment_total_40),
+        "per_unit_20": float(per_unit_20),
+        "per_unit_40": float(per_unit_40),
+        "rows": rows,
+        "notes": notes,
+    }
 
 # -------------------------
 # QUOTE SEARCH
@@ -1047,29 +1693,33 @@ def get_strict_quotes(
 
     container_size_label: str,
 
-    # ✅ NEW: selected route match
+    selected_route_type: str = "",
+    selected_route_mode_label: str = "",
+
     selected_route_id: str = "",
     selected_route_text: str = "",
 
-    # ✅ NEW: container mix counts
     size_20ft_count: int = 0,
     size_40ft_count: int = 0,
     size_2x20ft_count: int = 0,
 
     special_cost_lines: Optional[List[Dict[str, Any]]] = None,
 
-
-    # ✅ NEW: container ownership rules
     container_ownership: str = "",
-    soc_clearance_cost_value: str = "",
+    soc_clearance_cost_20ft_value: str = "",
+    soc_clearance_cost_40ft_value: str = "",
+    soc_selling_price_20ft_value: str = "",
+    soc_selling_price_40ft_value: str = "",
     lifting_labor_required: str = "",
     offloading_responsible: str = "",
 
     insurance_amount_num: Optional[float] = None,
     misc_cost_value: str = "",
+    incurrence_charges_value: str = "",
 
     limit: int = 1
-):
+) -> Tuple[List[Dict[str, Any]], Optional[str], Optional[str]]:
+    
     df = load_prices_df()
     if df is None or df.empty:
         return [], None, "Could not load prices_updated.xlsx properly. Please confirm the file exists and headers are correct."
@@ -1105,22 +1755,87 @@ def get_strict_quotes(
     origin_fields_open = (io.startswith("exw") or ("fca" in io) or ("fot" in io))
     dest_fields_required = (idst.startswith("dap") or idst.startswith("dpu") or idst.startswith("ddp") or idst.startswith("ddu"))
     dest_fields_optional = (idst.startswith("cpt") or idst.startswith("cip"))
+    selected_route_type_c = canon(selected_route_type)
+    selected_route_mode_c = canon(selected_route_mode_label)
 
-    pol_key = canon(pol_port)
-    pod_key = canon(pod_port)
+    is_land_only_route = ("land" in selected_route_mode_c and "sea" not in selected_route_mode_c and "rail" not in selected_route_mode_c)
 
-    df["_pol_key"] = df[POL_COL].apply(canon)
-    df["_pod_key"] = df[POD_COL].apply(canon)
+    # Route-specific destination behavior:
+    # For routes where final delivery may be in a different country than POD,
+    # do NOT force strict destination city/country filtering on prices rows.
+    skip_destination_strict_filter = selected_route_type_c in {
+        "pickup_to_pol_to_pod_to_final",
+        "pol_to_pod_to_final",
+        "pol_to_pod_to_city",
+        "city_to_pol_to_pod_to_city",
+    }
+
+    skip_destination_strict_filter = skip_destination_strict_filter or selected_route_type_c in {
+        "pol_to_pod",
+        "city_to_pol_to_pod",
+    }
+
+    # POL -> City and City -> City routes should not be forced through POD-country logic
+    skip_destination_strict_filter = skip_destination_strict_filter or selected_route_type_c in {
+        "pol_to_city",
+        "city_to_city",
+        "city_to_country_to_city",
+        "city_to_pol",
+    }
+
+    # For land-only city corridor routes, do not require sea POL/POD style quote logic.
+    # We still try POL/POD if present, but we must not force ocean-like destination filtering.
+    if is_land_only_route:
+        skip_destination_strict_filter = True
+
+    pol_key = normalize_location_key(pol_port)
+    pod_key = normalize_location_key(pod_port)
+
+    df["_pol_key"] = df[POL_COL].apply(normalize_location_key)
+    df["_pod_key"] = df[POD_COL].apply(normalize_location_key)
+
+    pol_mask = df[POL_COL].apply(lambda x: flexible_location_match(pol_port, x))
+    pod_mask = df[POD_COL].apply(lambda x: flexible_location_match(pod_port, x))
 
     # Base match used for shipping-line options:
     # user wants ALL shipping lines where only POL + POD match
-    df_pol_pod = df[(df["_pol_key"] == pol_key) & (df["_pod_key"] == pod_key)].copy()
+    if selected_route_type_c in {"pol_to_city", "city_to_city", "city_to_country_to_city", "city_to_pol"}:
+        # For inland routes, do not force POD matching
+        if pol_key:
+            df_pol_pod = df[pol_mask].copy()
+        else:
+            df_pol_pod = df.copy()
+    else:
+        df_pol_pod = df[pol_mask & pod_mask].copy()
 
     if df_pol_pod.empty:
+        if selected_route_type_c in {"pol_to_city", "city_to_city", "city_to_country_to_city", "city_to_pol"}:
+            return [], None, f"No matching rates found for POL='{pol_port}' and the selected inland route type."
         return [], None, f"No matching rates found for POL='{pol_port}' and POD='{pod_port}'."
 
     # Working dataframe for strict quote selection
     df_match = df_pol_pod.copy()
+
+    # IMPORTANT:
+    # Some sheets are grouped, and sibling rows may leave repeated text fields blank.
+    # Forward-fill shared identifying fields so strict matching does not wrongly drop
+    # valid rows that belong to the same POL/POD/route/shipping-line group.
+    ffill_cols = [
+        POL_COL,
+        POD_COL,
+        ORG_ADDR_COL,
+        ORG_CITY_COL,
+        ORG_COUNTRY_COL,
+        DST_ADDR_COL,
+        DST_CITY_COL,
+        DST_COUNTRY_COL,
+        find_col_case_insensitive(df_match, "Shipping Line Name"),
+        find_col_case_insensitive(df_match, "routes"),
+    ]
+
+    for c in ffill_cols:
+        if c and c in df_match.columns:
+            df_match[c] = df_match[c].ffill()
 
     # -------------------------
     # ✅ NEW: Route filter using Excel column 'routes'
@@ -1156,6 +1871,10 @@ def get_strict_quotes(
                 f"No matching rates found for POL='{pol_port}', POD='{pod_port}' "
                 f"and selected route='{selected_route_id_clean}'."
             )
+
+    # Keep a route-level backup BEFORE strict origin/destination filters.
+    # If exact city/country matching becomes too strict, we will fall back to this.
+    route_level_df = df_match.copy()
 
     # ✅ Keep a relaxed copy for trucking BEFORE strict origin/destination address filters.
     # Trucking rows for 20ft / 40ft may exist in the same POL/POD/route group
@@ -1286,59 +2005,119 @@ def get_strict_quotes(
         ua_tokens = {t for t in ua.split() if len(t) >= 3}
         sa_tokens = {t for t in sa.split() if len(t) >= 3}
         return len(ua_tokens.intersection(sa_tokens)) >= 2
-
     # -------------------------
     # ORIGIN filters (only if origin fields open)
     # -------------------------
     if origin_fields_open:
+        df_origin_try = df_match.copy()
+
         if origin_city and ORG_CITY_COL:
-            oc = canon(origin_city)
-            df_match = df_match[df_match[ORG_CITY_COL].apply(canon) == oc]
+            df_origin_try = df_origin_try[
+                df_origin_try[ORG_CITY_COL].apply(lambda x: flexible_text_match(origin_city, x))
+            ]
 
         if origin_country and ORG_COUNTRY_COL:
-            oco = canon(origin_country)
-            df_match = df_match[df_match[ORG_COUNTRY_COL].apply(canon) == oco]
+            df_origin_try = df_origin_try[
+                df_origin_try[ORG_COUNTRY_COL].apply(lambda x: flexible_text_match(origin_country, x))
+            ]
 
-        if df_match.empty:
-            return [], None, "No match after applying Origin City/Country filters."
+        # If strict origin city/country filters become too strict, do NOT kill the quote.
+        # Fall back to the already matched POL/POD/route rows.
+        if not df_origin_try.empty:
+            df_match = df_origin_try
+        else:
+            addr_warning_notes.append(
+                "⚠ Origin city/country exact match not found. Using POL/POD/route matched rows instead."
+            )
 
         if origin_address and ORG_ADDR_COL:
             any_addr = any(address_soft_match(origin_address, r.get(ORG_ADDR_COL)) for _, r in df_match.iterrows())
             if not any_addr:
                 addr_warning_notes.append("⚠ Origin address not exact match, but POL/City/Country matched.")
 
-    # -------------------------
+        # -------------------------
     # DESTINATION filters
     # -------------------------
-    if dest_fields_required or dest_fields_optional:
+    if (dest_fields_required or dest_fields_optional) and (not skip_destination_strict_filter):
+        df_dest_try = df_match.copy()
+
         use_city = True if dest_fields_required else bool(dest_city.strip())
         use_country = True if dest_fields_required else bool(dest_country.strip())
 
         if use_city and dest_city and DST_CITY_COL:
-            dc = canon(dest_city)
-            df_match = df_match[df_match[DST_CITY_COL].apply(canon) == dc]
+            df_dest_try = df_dest_try[
+                df_dest_try[DST_CITY_COL].apply(lambda x: flexible_text_match(dest_city, x))
+            ]
 
         if use_country and dest_country and DST_COUNTRY_COL:
-            dco = canon(dest_country)
-            df_match = df_match[df_match[DST_COUNTRY_COL].apply(canon) == dco]
+            df_dest_try = df_dest_try[
+                df_dest_try[DST_COUNTRY_COL].apply(lambda x: flexible_text_match(dest_country, x))
+            ]
 
-        if df_match.empty:
-            return [], None, "No match after applying Destination City/Country filters."
+        if not df_dest_try.empty:
+            df_match = df_dest_try
+        else:
+            addr_warning_notes.append(
+                "⚠ Destination city/country exact match not found. Using POL/POD/route matched rows instead."
+            )
 
         if dest_address and DST_ADDR_COL:
             any_addr = any(address_soft_match(dest_address, r.get(DST_ADDR_COL)) for _, r in df_match.iterrows())
             if not any_addr:
                 addr_warning_notes.append("⚠ Destination address not exact match, but POD/City/Country matched.")
+    elif skip_destination_strict_filter:
+        addr_warning_notes.append(
+            "⚠ Route type allows final delivery beyond POD country, so destination strict filtering was skipped."
+        )
                 
                 
  
-    # -------------------------
-    # ✅ BEST ROW selection (NO global Rates Validity)
-    # We select the lowest computed grand total among all matched rows.
+        # -------------------------
+    # ✅ BEST ROW selection (NEW size-aware logic)
     # -------------------------
     display_cols = [c for c in df_match.columns if not str(c).startswith("_")]
 
-    totals, has_any = compute_grand_totals_for_df(df_match, display_cols)
+    units_info = get_selected_container_units(
+        size_20ft_count=size_20ft_count,
+        size_40ft_count=size_40ft_count,
+        size_2x20ft_count=size_2x20ft_count,
+    )
+    total_20_units = int(units_info["total_20_units"])
+    total_40_units = int(units_info["total_40_units"])
+
+    single_20_count = int(units_info["single_20_count"])
+    pair_20_count = int(units_info["count_2x20"])
+
+    # BUSINESS RULE:
+    # Normal 20ft-family charge columns (all 20ft charges except trucking)
+    # must be multiplied by the ACTUAL PHYSICAL 20ft container count:
+    #
+    #   total_20_units = single_20_count + (pair_20_count * 2)
+    #
+    # Examples:
+    # - only 2x20ft qty 1  => total_20_units = 2
+    # - 20ft qty 1 + 2x20ft qty 1 => total_20_units = 3
+    #
+    # Trucking is handled separately:
+    # - single 20ft trucking uses trucking_charges_20ft * single_20_count
+    # - 2x20ft trucking uses trucking_charges_2x20ft * pair_20_count
+    effective_20_charge_units = total_20_units
+
+    # For the visible "Grand total per 20ft container" row:
+    # - if a single 20ft exists, show the single-20 trucking configuration
+    # - otherwise show the 2x20ft-pair trucking configuration
+    per20_mode = ""
+    if single_20_count > 0:
+        per20_mode = "single20"
+    elif pair_20_count > 0:
+        per20_mode = "pair20"
+        
+    totals, has_any = compute_selected_shipment_totals_for_df(
+        df=df_match,
+        columns=display_cols,
+        total_20_units=total_20_units,
+        total_40_units=total_40_units
+    )
     df_match["_grand_total_num"] = totals
     df_match["_grand_total_has"] = has_any
 
@@ -1350,630 +2129,795 @@ def get_strict_quotes(
 
     df_best = df_match.loc[[best_idx]].copy()
 
-# ✅ ALWAYS set df_best (this was the bug)
-    #df_best = df_match.loc[[best_idx]].copy()
+       # Build a relaxed grouped source for trucking.
+    # We already saved trucking_df before strict address filtering for this purpose.
+    trucking_src = trucking_df.copy()
 
-     # -------------------------
-    # ✅ Trucking (CALCULATED from ONE selected row only)
-    # Uses the already-selected best row (df_best), not multiple rows.
-    # -------------------------
-    trucking_total_calc = 0.0
-    trucking_validity_text = ""
-    trucking_expired_sizes: List[str] = []
-    trucking_used_dates: List[Tuple[str, str, Optional[date]]] = []
-    trucking_used_rates: Dict[str, float] = {}
-    trucking_missing_sizes: List[str] = []
+    # Forward-fill grouped columns so sibling rows stay in the same quote group
+    trucking_ffill_cols = [
+        find_col_case_insensitive(trucking_src, "Shipping Line Name"),
+        find_col_case_insensitive(trucking_src, "routes"),
+        ORG_ADDR_COL,
+        ORG_CITY_COL,
+        ORG_COUNTRY_COL,
+        DST_ADDR_COL,
+        DST_CITY_COL,
+        DST_COUNTRY_COL,
+    ]
+    for c in trucking_ffill_cols:
+        if c and c in trucking_src.columns:
+            trucking_src[c] = trucking_src[c].ffill()
 
-    try:
-        (
-            trucking_total_calc,
-            trucking_validity_text,
-            trucking_expired_sizes,
-            trucking_used_dates,
-            trucking_used_rates,
-            trucking_missing_sizes,
-        ) = compute_trucking_total_and_validity(
-            matched_df=df_best,
-            qty_20=size_20ft_count,
-            qty_40=size_40ft_count,
-            qty_2x20=size_2x20ft_count,
-        )
-    except Exception:
-        trucking_total_calc = 0.0
-        trucking_validity_text = ""
-        trucking_expired_sizes = []
-        trucking_used_dates = []
-        trucking_used_rates = {}
-        trucking_missing_sizes = []
-    # -------------------------
-    # Container ownership flags
-    # -------------------------
+    # Restrict trucking rows to the same selected shipping line as df_best
+    selected_line_val = ""
+    if ship_line_col and not df_best.empty:
+        selected_line_val = str(df_best.iloc[0].get(ship_line_col, "")).strip()
+
+    if selected_line_val and ship_line_col and ship_line_col in trucking_src.columns:
+        trucking_src = trucking_src[
+            trucking_src[ship_line_col].apply(lambda x: canon(x) == canon(selected_line_val))
+        ].copy()
+
+    # Keep the selected route restriction too
+    if selected_route_id_clean and routes_col and routes_col in trucking_src.columns:
+        trucking_src = trucking_src[
+            trucking_src[routes_col].apply(
+                lambda x: route_cell_matches_selected(
+                    cell_value=x,
+                    selected_route_id=selected_route_id_clean,
+                    selected_route_text=selected_route_text_clean
+                )
+            )
+        ].copy()
+
+    # Fallback safety
+    if trucking_src.empty:
+        trucking_src = df_best.copy()
+
+    trucking_plan = compute_trucking_plan_and_totals(
+        matched_df=trucking_src,
+        single_20_count=single_20_count,
+        pair_20_count=pair_20_count,
+        total_40_units=total_40_units,
+        per20_mode=per20_mode,
+    )
+
     own_c = canon(container_ownership)
     is_soc_customer = (own_c == canon("SOC - Customer Owned"))
     is_soc_logenix = (own_c == canon("SOC - Logenix Owned"))
     is_coc = (own_c == canon("COC"))
 
-    # helper to add a specific charges column from sheet + its validity (next validity column)
-    def add_sheet_charge_row_if_present(table_rows: List[Dict[str, Any]], row: pd.Series, charge_col_name: str) -> bool:
-        actual = find_col_case_insensitive(pd.DataFrame(columns=display_cols), charge_col_name) or charge_col_name
-        actual = next((c for c in display_cols if canon(c) == canon(charge_col_name)), None)
+    def _make_base_row_dict() -> Dict[str, Any]:
+        return {
+            "validity": "",
+            "validity_status": "na",
+            "can_remove": True,
+            "include_in_total": True,
+            "cost_num": 0.0,
+            "is_grand_total": False,
+            "can_change": False,
+            "change_type": "",
+            "ocean_size": "",
+            "grand_kind": "",
+            "grand_mode": "",
+            "grand_key": "",
+            "options": [],
+            "per20_num": 0.0,
+            "per40_num": 0.0,
+            "ship20_num": 0.0,
+            "ship40_num": 0.0,
+            "ship_common_num": 0.0,
+            "unit_count": 0,
+            "is_red_text": False,
+        }
+
+    def _row_exists(table_rows: List[Dict[str, Any]], name: str) -> bool:
+        return any(canon(r.get("name", "")) == canon(name) for r in table_rows)
+    
+    def _append_info_row(
+        table_rows: List[Dict[str, Any]],
+        col_name: str,
+        raw_val: Any
+    ):
+        rr = _make_base_row_dict()
+        rr.update({
+            "name": str(col_name),
+            "can_remove": False,
+            "include_in_total": False,
+            "cost_num": 0.0,
+            "cost": "",
+        })
+
+        col_canon = canon(col_name)
+
+        # format date-like fields nicely
+        if "date" in col_canon or "validity" in col_canon:
+            rr["cost"] = fmt_date_like(raw_val) or str(raw_val).strip()
+        else:
+            rr["cost"] = str(raw_val).strip()
+
+        table_rows.append(rr)
+
+    def _append_common_charge_row(
+        table_rows: List[Dict[str, Any]],
+        row: pd.Series,
+        col_name: str,
+        label: Optional[str] = None
+    ):
+        actual = next((c for c in display_cols if canon(c) == canon(col_name)), None)
         if not actual:
-            return False
+            return
 
         raw_val = row.get(actual)
-        if raw_val is None or pd.isna(raw_val) or str(raw_val).strip() == "":
-            return False
+        num = parse_price_to_float(raw_val)
+        if num is None:
+            return
 
         validity_text = ""
         validity_status = "na"
         idx = display_cols.index(actual)
         if idx + 1 < len(display_cols) and "validity" in canon(display_cols[idx + 1]):
-            raw_validity = row.get(display_cols[idx + 1])
-            validity_status, validity_fmt, _ = validity_status_and_text(raw_validity)
+            validity_status, validity_fmt, _ = validity_status_and_text(row.get(display_cols[idx + 1]))
             validity_text = validity_fmt or ""
 
-        num = parse_price_to_float(raw_val)
-        cost_text = fmt_money(num) if num is not None else str(raw_val).strip()
-
-        if any(canon(r.get("name", "")) == canon(actual) for r in table_rows):
-            return True
-
-        table_rows.append({
-            "name": str(actual),
-            "cost": cost_text,
+        rr = _make_base_row_dict()
+        rr.update({
+            "name": label or str(actual),
+            "cost": build_flat_cost_display(float(num)),
             "validity": validity_text,
             "validity_status": validity_status,
-            "can_remove": True,
-            "include_in_total": True,
-            "cost_num": float(num) if num is not None else 0.0,
-            "is_grand_total": False,
+            "cost_num": float(num),
 
-            "can_change": False,
-            "change_type": "",
-            "ocean_size": "",
-            "grand_kind": "",
-            "options": []
+            # Common charges must behave like per-container charges
+            # for each active size family.
+            "ship_common_num": 0.0,
+            "ship20_num": 0.0,
+            "ship40_num": 0.0,
         })
-        return True
 
-    # -------------------------
-    # BUILD RESULT TABLE
-    # -------------------------
+        if total_20_units > 0:
+            rr["per20_num"] = float(num)
+
+        if total_40_units > 0:
+            rr["per40_num"] = float(num)
+
+        table_rows.append(rr)
+
+
+    def _append_flat_extra_row(
+        table_rows: List[Dict[str, Any]],
+        name: str,
+        amount: float,
+        validity_text: str = "",
+        validity_status: str = "na"
+    ):
+        amt = float(amount or 0.0)
+        if amt <= 0:
+            return
+
+        rr = _make_base_row_dict()
+        rr.update({
+            "name": name,
+            "cost": build_flat_cost_display(amt),
+            "validity": validity_text,
+            "validity_status": validity_status,
+            "cost_num": amt,
+
+            # Insurance / Misc / Special Cost must be part of
+            # per-container totals for active size families.
+            "ship_common_num": 0.0,
+            "ship20_num": 0.0,
+            "ship40_num": 0.0,
+        })
+
+        if total_20_units > 0:
+            rr["per20_num"] = amt
+
+        if total_40_units > 0:
+            rr["per40_num"] = amt
+
+        table_rows.append(rr)
+
+    def _append_sized_manual_adjustment_row(
+        table_rows: List[Dict[str, Any]],
+        name: str,
+        amount: float,
+        size_bucket: str,
+        subtract: bool = False,
+        validity_text: str = "",
+        validity_status: str = "na"
+    ):
+        amt = float(amount or 0.0)
+        if amt <= 0:
+            return
+
+        signed_amt = -amt if subtract else amt
+
+        rr = _make_base_row_dict()
+        rr.update({
+            "name": name,
+            "cost": build_flat_cost_display(signed_amt),
+            "validity": validity_text,
+            "validity_status": validity_status,
+        })
+
+        if size_bucket == "20":
+            if total_20_units <= 0:
+                return
+            shipment_total = float(signed_amt) * float(total_20_units)
+            rr["cost_num"] = shipment_total
+            rr["per20_num"] = float(signed_amt)
+            rr["ship20_num"] = shipment_total
+            rr["unit_count"] = total_20_units
+
+        elif size_bucket == "40":
+            if total_40_units <= 0:
+                return
+            shipment_total = float(signed_amt) * float(total_40_units)
+            rr["cost_num"] = shipment_total
+            rr["per40_num"] = float(signed_amt)
+            rr["ship40_num"] = shipment_total
+            rr["unit_count"] = total_40_units
+
+        else:
+            return
+
+        table_rows.append(rr)
+
+    def _append_display_only_red_row(
+        table_rows: List[Dict[str, Any]],
+        name: str,
+        amount: float,
+        validity_text: str = ""
+    ):
+        amt = float(amount or 0.0)
+        if amt <= 0:
+            return
+
+        rr = _make_base_row_dict()
+        rr.update({
+            "name": name,
+            "cost": build_flat_cost_display(amt),
+            "validity": validity_text,
+            "validity_status": "na",
+            "can_remove": False,
+            "include_in_total": False,
+            "cost_num": 0.0,
+            "per20_num": 0.0,
+            "per40_num": 0.0,
+            "ship20_num": 0.0,
+            "ship40_num": 0.0,
+            "ship_common_num": 0.0,
+            "is_red_text": True,
+        })
+        table_rows.append(rr)
+    def _append_display_only_red_excel_row(
+        table_rows: List[Dict[str, Any]],
+        row: pd.Series,
+        col_name: str,
+        label: Optional[str] = None
+    ):
+        actual = next((c for c in display_cols if canon(c) == canon(col_name)), None)
+        if not actual:
+            return
+
+        raw_val = row.get(actual)
+        num = parse_price_to_float(raw_val)
+        if num is None:
+            return
+
+        validity_text = ""
+        validity_status = "na"
+        idx = display_cols.index(actual)
+        if idx + 1 < len(display_cols) and "validity" in canon(display_cols[idx + 1]):
+            validity_status, validity_fmt, _ = validity_status_and_text(row.get(display_cols[idx + 1]))
+            validity_text = validity_fmt or ""
+
+        rr = _make_base_row_dict()
+        rr.update({
+            "name": label or str(actual),
+            "cost": build_flat_cost_display(float(num)),
+            "validity": validity_text,
+            "validity_status": validity_status,
+            "can_remove": False,
+            "include_in_total": False,
+            "cost_num": 0.0,
+            "per20_num": 0.0,
+            "per40_num": 0.0,
+            "ship20_num": 0.0,
+            "ship40_num": 0.0,
+            "ship_common_num": 0.0,
+            "is_red_text": True,
+        })
+        table_rows.append(rr)
+    def _append_sized_charge_row(
+        table_rows: List[Dict[str, Any]],
+        row: pd.Series,
+        col_name: str,
+        label: Optional[str] = None
+    ):
+        actual = next((c for c in display_cols if canon(c) == canon(col_name)), None)
+        if not actual:
+            return
+
+        bucket = charge_size_bucket(actual)
+        raw_val = row.get(actual)
+        num = parse_price_to_float(raw_val)
+        if num is None:
+            return
+
+        if bucket == "20" and total_20_units <= 0:
+            return
+        if bucket == "40" and total_40_units <= 0:
+            return
+
+        validity_text = ""
+        validity_status = "na"
+        idx = display_cols.index(actual)
+        if idx + 1 < len(display_cols) and "validity" in canon(display_cols[idx + 1]):
+            validity_status, validity_fmt, _ = validity_status_and_text(row.get(display_cols[idx + 1]))
+            validity_text = validity_fmt or ""
+
+        rr = _make_base_row_dict()
+        rr["name"] = label or str(actual)
+        rr["validity"] = validity_text
+        rr["validity_status"] = validity_status
+
+        if bucket == "20":
+            # 20ft-family charges must use ACTUAL PHYSICAL 20ft quantity
+            # single 20ft + (2 * 2x20ft pairs)
+            shipment_units = effective_20_charge_units
+            shipment_total = float(num) * float(shipment_units)
+
+            # SHOW exact Excel rate in row, not multiplied amount
+            rr["cost"] = build_rate_display(float(num))
+            rr["cost_num"] = float(shipment_total)
+            rr["per20_num"] = float(num)
+            rr["ship20_num"] = float(shipment_total)
+            rr["unit_count"] = shipment_units
+        elif bucket == "40":
+            shipment_total = float(num) * float(total_40_units)
+
+            # SHOW exact Excel rate in row, not multiplied amount
+            rr["cost"] = build_rate_display(float(num))
+            rr["cost_num"] = float(shipment_total)
+            rr["per40_num"] = float(num)
+            rr["ship40_num"] = float(shipment_total)
+            rr["unit_count"] = total_40_units
+
+        table_rows.append(rr)
     results: List[Dict[str, Any]] = []
     special_cost_lines = special_cost_lines or []
-    
+
     for _, row in df_best.iterrows():
         validity_label = "Validity: As per individual charge validity column."
         validity_kind = "na"
-
         table_rows: List[Dict[str, Any]] = []
-
-        def _row_exists(name: str) -> bool:
-            return any(canon(r.get("name", "")) == canon(name) for r in table_rows)
 
         # ---- Shipping Line selector row
         if ship_line_col:
             line_val = str(row.get(ship_line_col, "")).strip()
-            if line_val and not _row_exists("Shipping Line Name"):
-                table_rows.append({
+            if line_val:
+                rr = _make_base_row_dict()
+                rr.update({
                     "name": "Shipping Line Name",
                     "cost": line_val,
-                    "validity": "",
-                    "validity_status": "na",
                     "can_remove": False,
                     "include_in_total": False,
                     "cost_num": 0.0,
-                    "is_grand_total": False,
-
                     "can_change": True,
                     "change_type": "ocean_freight_line",
-                    "ocean_size": "",
-                    "grand_kind": "",
+                    "selected_line": line_val,
                     "options": ocean_freight_options,
-                    "selected_line": line_val
                 })
+                table_rows.append(rr)
 
         # -------------------------
-        # IMPORTANT:
-        # For container ownership rules, we SKIP these columns in the generic loop,
-        # and add them explicitly only when applicable:
-        # - SOC_Purchase_Price_charges => only for SOC - Logenix Owned
-        # - COC_charges => only for COC
-        # For SOC - Customer Owned => neither should be included.
+        # Generic scan of all columns
+        # Future-proof:
+        # - show non-charge columns too
+        # - size-aware for _20ft / _40ft
+        # - do not hardcode all possible future columns
         # -------------------------
-        # Also skip Labor/Offloading here because we add them explicitly below
-# based on user selections (Yes/No, Logenix/Customer).
-        SKIP_SPECIAL = {
-            canon("SOC_Purchase_Price_charges"),
-            canon("COC_charges"),
-            canon("Labor_lifting_cost"),
-            canon("offloading_cost"),
-
-            # ✅ New trucking columns from sheet must not render directly
-            # because trucking is shown as one calculated row later.
+        skip_cols = {
+            canon("SOC_Purchase_Price_charges_20ft"),
+            canon("SOC_Purchase_Price_charges_40ft"),
+            canon("COC_charges_20ft"),
+            canon("COC_charges_40ft"),
+            canon("Labor_lifting_cost_20ft"),
+            canon("Labor_lifting_cost_40ft"),
+            canon("offloading_cost_20ft"),
+            canon("offloading_cost_40ft"),
             canon("trucking_charges_20ft"),
             canon("trucking_charges_40ft"),
             canon("trucking_charges_2x20ft"),
-        }
 
+            # display-only rows
+            canon("Switch_BL_charges"),
+        }
 
         i = 0
         while i < len(display_cols):
             col = display_cols[i]
             raw = row.get(col)
+            col_c = canon(col)
 
             if raw is None or pd.isna(raw) or str(raw).strip() == "":
                 i += 1
                 continue
 
-            col_c = canon(col)
-
-            # Skip non-charges validity columns
-            if ("validity" in col_c) and (not is_charges_column(col)):
+            if col_c in {"routes"}:
                 i += 1
                 continue
 
-            # ✅ skip SOC/COC special columns here; handled below based on ownership
-            if canon(col) in SKIP_SPECIAL:
-                # also skip its validity if next col is validity
-                if i + 1 < len(display_cols) and "validity" in canon(display_cols[i + 1]):
-                    i += 2
-                else:
-                    i += 1
+            if "validity" in col_c and not is_charges_column(col):
+                i += 1
                 continue
 
-            # ---- CHARGES
-            if is_charges_column(col):
-                is_ocean20 = (canon(col) == canon("Ocean Freight (20ft)_charges"))
-                if is_ocean20 and (i + 1 < len(display_cols)) and (canon(display_cols[i + 1]) == canon("Ocean Freight (40ft)_charges")):
-                    raw20 = row.get(col)
-                    raw40 = row.get(display_cols[i + 1])
+            if col_c in skip_cols:
+                i += 1
+                continue
 
-                    num20 = parse_price_to_float(raw20)
-                    num40 = parse_price_to_float(raw40)
+            bucket = charge_size_bucket(col)
 
-                    cost20 = fmt_money(num20) if num20 is not None else str(raw20).strip()
-                    cost40 = fmt_money(num40) if num40 is not None else str(raw40).strip()
-                    
-                    validity_text = ""
-                    validity_status = "na"
-                    adv = 2
-                    if i + 2 < len(display_cols) and "validity" in canon(display_cols[i + 2]):
-                        raw_validity = row.get(display_cols[i + 2])
-                        validity_status, validity_fmt, _ = validity_status_and_text(raw_validity)
-                        validity_text = validity_fmt or ""
-                        adv = 3
-
-                    table_rows.append({
-                        "name": "Ocean Freight (20ft)_charges",
-                        "cost": cost20,
-                        "validity": validity_text,
-                        "validity_status": validity_status,
-                        "can_remove": True,
-                        "include_in_total": True,
-                        "cost_num": float(num20) if num20 is not None else 0.0,
-                        "is_grand_total": False,
-
-                        "can_change": False,
-                        "change_type": "",
-                        "ocean_size": "20",
-                        "grand_kind": "",
-                        "options": []
-                    })
-                    table_rows.append({
-                        "name": "Ocean Freight (40ft)_charges",
-                        "cost": cost40,
-                        "validity": validity_text,
-                        "validity_status": validity_status,
-                        "can_remove": True,
-                        "include_in_total": True,
-                        "cost_num": float(num40) if num40 is not None else 0.0,
-                        "is_grand_total": False,
-
-                        "can_change": False,
-                        "change_type": "",
-                        "ocean_size": "40",
-                        "grand_kind": "",
-                        "options": []
-                    })
-
-                    i += adv
+            # -------------------------
+            # NON-CHARGE COLUMNS
+            # -------------------------
+            if not is_charges_column(col):
+                if bucket == "20" and total_20_units <= 0:
+                    i += 1
                     continue
 
-                num = parse_price_to_float(raw)
-                cost_text = fmt_money(num) if num is not None else str(raw).strip()
-
-                validity_text = ""
-                validity_status = "na"
-                if i + 1 < len(display_cols) and "validity" in canon(display_cols[i + 1]):
-                    raw_validity = row.get(display_cols[i + 1])
-                    validity_status, validity_fmt, _ = validity_status_and_text(raw_validity)
-                    validity_text = validity_fmt or ""
-                    i += 2
-                else:
+                if bucket == "40" and total_40_units <= 0:
                     i += 1
+                    continue
 
-                table_rows.append({
-                    "name": str(col),
-                    "cost": cost_text,
-                    "validity": validity_text,
-                    "validity_status": validity_status,
-                    "can_remove": True,
-                    "include_in_total": True,
-                    "cost_num": float(num) if num is not None else 0.0,
-                    "is_grand_total": False,
+                if bucket == "20":
+                    base_name = strip_size_suffix(col)
+                    next_col = display_cols[i + 1] if (i + 1) < len(display_cols) else None
+                    next_bucket = charge_size_bucket(next_col) if next_col else ""
 
-                    "can_change": False,
-                    "change_type": "",
-                    "ocean_size": "",
-                    "grand_kind": "",
-                    "options": []
-                })
+                    if next_col and next_bucket == "40" and strip_size_suffix(next_col) == base_name:
+                        if total_20_units > 0:
+                            _append_info_row(table_rows, col, raw)
+
+                        if total_40_units > 0:
+                            raw40 = row.get(next_col)
+                            if raw40 is not None and not pd.isna(raw40) and str(raw40).strip() != "":
+                                _append_info_row(table_rows, next_col, raw40)
+
+                        i += 2
+                        continue
+
+                _append_info_row(table_rows, col, raw)
+                i += 1
                 continue
 
-            # ---- Non-charges info
-            if "date" in col_c or "validity" in col_c:
-                cost_text = fmt_date_like(raw) or str(raw).strip()
-            else:
-                cost_text = str(raw).strip()
+            # -------------------------
+            # CHARGE COLUMNS
+            # -------------------------
+            if bucket == "20":
+                base_name = strip_size_suffix(col)
+                next_col = display_cols[i + 1] if (i + 1) < len(display_cols) else None
+                next_bucket = charge_size_bucket(next_col) if next_col else ""
 
-                table_rows.append({
-                "name": str(col),
-                "cost": cost_text,
-                "validity": "",
-                "validity_status": "na",
-                "can_remove": False,
-                "include_in_total": False,
-                "cost_num": 0.0,
-                "is_grand_total": False,
+                if next_col and next_bucket == "40" and strip_size_suffix(next_col) == base_name:
+                    validity_col_local = (
+                        display_cols[i + 2]
+                        if (i + 2) < len(display_cols) and "validity" in canon(display_cols[i + 2])
+                        else None
+                    )
 
-                "can_change": False,
-                "change_type": "",
-                "ocean_size": "",
-                "grand_kind": "",
-                "options": []
-            })
+                    if total_20_units > 0:
+                        raw20 = row.get(col)
+                        num20 = parse_price_to_float(raw20)
+                        if num20 is not None:
+                            shipment_units = effective_20_charge_units
+                            rr = _make_base_row_dict()
+                            rr.update({
+                                "name": str(col),
+                                "cost": build_rate_display(float(num20)),
+                                "cost_num": float(num20) * float(shipment_units),
+                                "per20_num": float(num20),
+                                "ship20_num": float(num20) * float(shipment_units),
+                                "unit_count": shipment_units,
+                            })
+                            if validity_col_local:
+                                rr["validity_status"], validity_fmt, _ = validity_status_and_text(row.get(validity_col_local))
+                                rr["validity"] = validity_fmt or ""
+                            table_rows.append(rr)
+
+                    if total_40_units > 0:
+                        raw40 = row.get(next_col)
+                        num40 = parse_price_to_float(raw40)
+                        if num40 is not None:
+                            rr = _make_base_row_dict()
+                            rr.update({
+                                "name": str(next_col),
+                                "cost": build_rate_display(float(num40)),
+                                "cost_num": float(num40) * float(total_40_units),
+                                "per40_num": float(num40),
+                                "ship40_num": float(num40) * float(total_40_units),
+                                "unit_count": total_40_units,
+                            })
+                            if validity_col_local:
+                                rr["validity_status"], validity_fmt, _ = validity_status_and_text(row.get(validity_col_local))
+                                rr["validity"] = validity_fmt or ""
+                            table_rows.append(rr)
+
+                    i += 3 if validity_col_local else 2
+                    continue
+
+                if total_20_units > 0:
+                    _append_sized_charge_row(table_rows, row, col)
+                i += 1
+                continue
+
+            if bucket == "40":
+                if total_40_units > 0:
+                    _append_sized_charge_row(table_rows, row, col)
+                i += 1
+                continue
+
+            _append_common_charge_row(table_rows, row, col)
             i += 1
 
         # -------------------------
-        # ✅ Apply Container Ownership logic
+        # Final safety filter
         # -------------------------
-        # SOC - Customer Owned => do NOT include any container purchase/COC charges
-        # SOC - Logenix Owned => include SOC_Purchase_Price_charges + user's clearance charges
-        # COC => include COC_charges (+ validity)
+        filtered_rows: List[Dict[str, Any]] = []
+        for rr in table_rows:
+            nm = canon(rr.get("name", ""))
+
+            if ("_40ft" in nm or "(40ft)" in nm) and total_40_units <= 0:
+                continue
+
+            if ("_20ft" in nm or "(20ft)" in nm) and total_20_units <= 0:
+                continue
+
+            filtered_rows.append(rr)
+
+        table_rows = filtered_rows
+
+        # -------------------------
+        # Ownership-specific charges
+        # -------------------------
         if is_soc_logenix:
-            # include SOC purchase price from sheet
-            add_sheet_charge_row_if_present(table_rows, row, "SOC_Purchase_Price_charges")
+            if total_20_units > 0:
+                _append_sized_charge_row(table_rows, row, "SOC_Purchase_Price_charges_20ft")
+            if total_40_units > 0:
+                _append_sized_charge_row(table_rows, row, "SOC_Purchase_Price_charges_40ft")
 
-            # include user custom clearance charges (removable)
-            clearance_num = parse_money_allow_empty(soc_clearance_cost_value)
-            if clearance_num > 0 and not _row_exists("SOC Custom Clearance_charges"):
-                table_rows.append({
-                    "name": "SOC Custom Clearance_charges",
-                    "cost": fmt_money(clearance_num) or "$0.00",
-                    "validity": "",
-                    "can_remove": True,
-                    "include_in_total": True,
-                    "cost_num": float(clearance_num),
-                    "is_grand_total": False,
+            clearance_20_num = parse_money_allow_empty(soc_clearance_cost_20ft_value)
+            if clearance_20_num > 0 and not _row_exists(table_rows, "SOC Container Custom Clearance Charges 20ft"):
+                _append_sized_manual_adjustment_row(
+                    table_rows=table_rows,
+                    name="SOC Container Custom Clearance Charges 20ft",
+                    amount=clearance_20_num,
+                    size_bucket="20",
+                    subtract=False,
+                )
 
-                    "can_change": False,
-                    "change_type": "",
-                    "ocean_size": "",
-                    "grand_kind": "",
-                    "options": []
-                })
+            clearance_40_num = parse_money_allow_empty(soc_clearance_cost_40ft_value)
+            if clearance_40_num > 0 and not _row_exists(table_rows, "SOC Container Custom Clearance Charges 40ft"):
+                _append_sized_manual_adjustment_row(
+                    table_rows=table_rows,
+                    name="SOC Container Custom Clearance Charges 40ft",
+                    amount=clearance_40_num,
+                    size_bucket="40",
+                    subtract=False,
+                )
+
+            selling_20_num = parse_money_allow_empty(soc_selling_price_20ft_value)
+            if selling_20_num > 0 and not _row_exists(table_rows, "SOC Container Selling Price 20ft"):
+                _append_sized_manual_adjustment_row(
+                    table_rows=table_rows,
+                    name="SOC Container Selling Price 20ft",
+                    amount=selling_20_num,
+                    size_bucket="20",
+                    subtract=True,
+                )
+
+            selling_40_num = parse_money_allow_empty(soc_selling_price_40ft_value)
+            if selling_40_num > 0 and not _row_exists(table_rows, "SOC Container Selling Price 40ft"):
+                _append_sized_manual_adjustment_row(
+                    table_rows=table_rows,
+                    name="SOC Container Selling Price 40ft",
+                    amount=selling_40_num,
+                    size_bucket="40",
+                    subtract=True,
+                )
 
         elif is_coc:
-            add_sheet_charge_row_if_present(table_rows, row, "COC_charges")
+            if total_20_units > 0:
+                _append_sized_charge_row(table_rows, row, "COC_charges_20ft")
+            if total_40_units > 0:
+                _append_sized_charge_row(table_rows, row, "COC_charges_40ft")
 
         # -------------------------
-        # ✅ Lifting / Labor Required Logic
+        # Lifting / Labor required?
         # -------------------------
-        lifting_c = canon(lifting_labor_required)
-        is_lifting_yes = (lifting_c == canon("Yes"))
-
-        if is_lifting_yes:
-
-            labor_col = next(
-                (c for c in display_cols if canon(c) == canon("Labor_lifting_cost")),
-                None
-            )
-
-            labor_validity_text = ""
-            labor_cost_text = "N/A"
-            labor_cost_num = 0.0
-
-            if labor_col:
-                raw_labor = row.get(labor_col)
-
-                # validity next column
-                idx_labor = display_cols.index(labor_col)
-                if idx_labor + 1 < len(display_cols) and "validity" in canon(display_cols[idx_labor + 1]):
-                    labor_validity_text = fmt_date_like(row.get(display_cols[idx_labor + 1])) or ""
-
-                if raw_labor is not None and not pd.isna(raw_labor) and str(raw_labor).strip() != "":
-                    parsed_labor = parse_price_to_float(raw_labor)
-                    if parsed_labor is not None:
-                        labor_cost_text = fmt_money(parsed_labor)
-                        labor_cost_num = float(parsed_labor)
-                    else:
-                        labor_cost_text = str(raw_labor).strip()
-
-            # prevent duplicate
-            if not any(canon(r.get("name", "")) == canon("Labor_lifting_cost") for r in table_rows):
-                table_rows.append({
-                    "name": "Labor_lifting_cost",
-                    "cost": labor_cost_text,
-                     "validity": labor_validity_text,
-                    "validity_status": validity_status_from_text(labor_validity_text),
-                     "can_remove": True,
-
-                    # Always included (N/A contributes 0 but removable)
-                    "include_in_total": True,
-                    "cost_num": labor_cost_num,
-                    "is_grand_total": False,
-
-
-                    "can_change": False,
-                    "change_type": "",
-                    "ocean_size": "",
-                    "grand_kind": "",
-                    "options": []
-                })
+        if canon(lifting_labor_required) == canon("Yes"):
+            if total_20_units > 0:
+                _append_sized_charge_row(table_rows, row, "Labor_lifting_cost_20ft")
+            if total_40_units > 0:
+                _append_sized_charge_row(table_rows, row, "Labor_lifting_cost_40ft")
 
         # -------------------------
-        # ✅ Offloading Responsible Logic
+        # Offloading responsibility
         # -------------------------
-        off_c = canon(offloading_responsible)
-        is_offloading_logenix = (off_c == canon("Logenix"))
+        if canon(offloading_responsible) == canon("Logenix"):
+            if total_20_units > 0:
+                _append_sized_charge_row(table_rows, row, "offloading_cost_20ft")
+            if total_40_units > 0:
+                _append_sized_charge_row(table_rows, row, "offloading_cost_40ft")
 
-        if is_offloading_logenix:
-            off_col = next(
-                (c for c in display_cols if canon(c) == canon("offloading_cost")),
-                None
-            )
-
-            off_validity_text = ""
-            off_cost_text = "N/A"
-            off_cost_num = 0.0
-
-            if off_col:
-                raw_off = row.get(off_col)
-
-                # validity is expected right after offloading_cost (named validity like others)
-                idx_off = display_cols.index(off_col)
-                if idx_off + 1 < len(display_cols) and "validity" in canon(display_cols[idx_off + 1]):
-                    off_validity_text = fmt_date_like(row.get(display_cols[idx_off + 1])) or ""
-
-                # cost value
-                if raw_off is not None and not pd.isna(raw_off) and str(raw_off).strip() != "":
-                    parsed_off = parse_price_to_float(raw_off)
-                    if parsed_off is not None:
-                        off_cost_text = fmt_money(parsed_off) or str(raw_off).strip()
-                        off_cost_num = float(parsed_off)
-                    else:
-                        off_cost_text = str(raw_off).strip()
-
-            # add once, no duplicates
-            if not any(canon(r.get("name", "")) == canon("offloading_cost") for r in table_rows):
-                table_rows.append({
-                    "name": "offloading_cost",
-                    "cost": off_cost_text,
-                    "validity": off_validity_text,
-                    "validity_status": validity_status_from_text(off_validity_text),
-                    "can_remove": True,
-
-                    # Always included (N/A contributes 0 but removable)
-                    "include_in_total": True,
-                    "cost_num": off_cost_num,
-                    "is_grand_total": False,
-
-
-                    "can_change": False,
-                    "change_type": "",
-                    "ocean_size": "",
-                    "grand_kind": "",
-                    "options": []
-                })
-                
-
-
-# ✅ Add CALCULATED Trucking Charges row (always show if user selected any containers)
-        user_selected_any_trucking = (
-            (size_20ft_count > 0) or (size_40ft_count > 0) or (size_2x20ft_count > 0)
-        )
-
-        if user_selected_any_trucking and not _row_exists("trucking_charges"):
-            notes: List[str] = []
-            for sz in (trucking_expired_sizes or []):
-                notes.append(f"{sz} trucking is expired but included.")
-            for sz in (trucking_missing_sizes or []):
-                notes.append(f"{sz} trucking rate not found in selected row (shown as N/A).")
-            trucking_note_text = " ".join(notes).strip()
-
-            def _truck_rate_text(sz: str) -> str:
-                r = float(trucking_used_rates.get(sz, 0.0) or 0.0)
-                return (fmt_money(r) or "N/A") if r > 0 else "N/A"
-
-            break_parts: List[str] = []
-            if size_20ft_count > 0:
-                break_parts.append(f"20ft {size_20ft_count}×{_truck_rate_text('20ft')}")
-            if size_40ft_count > 0:
-                break_parts.append(f"40ft {size_40ft_count}×{_truck_rate_text('40ft')}")
-            if size_2x20ft_count > 0:
-                break_parts.append(f"2x20ft {size_2x20ft_count}×{_truck_rate_text('2x20ft')}")
-
-            trucking_breakdown_text = f"  ({', '.join(break_parts)})" if break_parts else ""
-
-            cost_display = (fmt_money(trucking_total_calc) or "$0.00") if float(trucking_total_calc) > 0 else "N/A"
-
-            table_rows.append({
-                "name": "trucking_charges",
-                "cost": f"{cost_display}{trucking_breakdown_text}",
-                "validity": trucking_validity_text or "",
-                 "validity_status": validity_status_from_text(trucking_validity_text),
-                "can_remove": True,
-                "include_in_total": True,
-                "cost_num": float(trucking_total_calc) if float(trucking_total_calc) > 0 else 0.0,
-                "is_grand_total": False,
-
-                "can_change": False,
-                "change_type": "",
-                "ocean_size": "",
-                "grand_kind": "",
-                "options": [],
-
-                "note": trucking_note_text
-            })
         # -------------------------
-        # Extras (insurance/misc/special) — ONCE ONLY
+        # Trucking rows
         # -------------------------
-        extra_total = 0.0
-        
+        for tr in trucking_plan["rows"]:
+            table_rows.append(tr)
+
+        # -------------------------
+        # Extras
+        # -------------------------
+        # Insurance must be DISPLAY ONLY in red, below totals, not included in totals
+        insurance_display_num = 0.0
         if insurance_amount_num is not None and float(insurance_amount_num) > 0:
-            if not _row_exists("Insurance (Calculated)"):
-                table_rows.append({
-                    "name": "Insurance (Calculated)",
-                    "cost": fmt_money(insurance_amount_num) or "$0.00",
-                    "validity": "",
-                    "validity_status": "na",
-                    "can_remove": True,
-                    "include_in_total": True,
-                    "cost_num": float(insurance_amount_num),
-                    "is_grand_total": False,
-
-                    "can_change": False,
-                    "change_type": "",
-                    "ocean_size": "",
-                    "grand_kind": "",
-                    "options": []
-                })
-            extra_total += float(insurance_amount_num)
+            insurance_display_num = float(insurance_amount_num)
 
         misc_num = parse_money_allow_empty(misc_cost_value)
         if misc_num > 0:
-            if not _row_exists("Miscellaneous Cost"):
-                table_rows.append({
-                    "name": "Miscellaneous Cost",
-                    "cost": fmt_money(misc_num) or "$0.00",
-                    "validity": "",
-                    "validity_status": "na",
-                    "can_remove": True,
-                    "include_in_total": True,
-                    "cost_num": float(misc_num),
-                    "is_grand_total": False,
+            _append_flat_extra_row(
+                table_rows=table_rows,
+                name="Miscellaneous Cost",
+                amount=float(misc_num),
+            )
 
-                    "can_change": False,
-                    "change_type": "",
-                    "ocean_size": "",
-                    "grand_kind": "",
-                    "options": []
-                })
-            extra_total += float(misc_num)
-
-        special_total = 0.0
         for it in (special_cost_lines or []):
             label = (it.get("reason") or "").strip() or "Special Cost"
             amt = float(it.get("cost_num") or 0.0)
             if amt <= 0:
                 continue
-            row_name = f"Special Cost — {label}"
-            if not _row_exists(row_name):
-                table_rows.append({
-                    "name": row_name,
-                    "cost": fmt_money(amt) or "$0.00",
-                    "validity": "",
-                    "can_remove": True,
-                    "include_in_total": True,
-                    "cost_num": amt,
-                    "is_grand_total": False,
 
-                    "can_change": False,
-                    "change_type": "",
-                    "ocean_size": "",
-                    "grand_kind": "",
-                    "options": []
-                })
-            special_total += amt
-        extra_total += special_total
+            _append_flat_extra_row(
+                table_rows=table_rows,
+                name=f"Special Cost — {label}",
+                amount=amt,
+            )
+
+        incurrence_num = parse_money_allow_empty(incurrence_charges_value)
 
         # -------------------------
-        # Two Grand Totals (20 / 40)
+        # Grand totals
         # -------------------------
-        base_total_sheet = 0.0
+        total_per_20 = 0.0
+        total_per_40 = 0.0
+
+        single20_truck_rate = 0.0
+        pair20_truck_rate = 0.0
+
         for rr in table_rows:
-            if rr.get("include_in_total") and not rr.get("is_grand_total"):
-                base_total_sheet += float(rr.get("cost_num") or 0.0)
+            if rr.get("is_grand_total"):
+                continue
+            if not rr.get("include_in_total"):
+                continue
 
-        ocean20 = 0.0
-        ocean40 = 0.0
-        for rr in table_rows:
-            if canon(rr.get("name", "")) == canon("Ocean Freight (20ft)_charges"):
-                ocean20 = float(rr.get("cost_num") or 0.0)
-            if canon(rr.get("name", "")) == canon("Ocean Freight (40ft)_charges"):
-                ocean40 = float(rr.get("cost_num") or 0.0)
+            row_name_c = canon(rr.get("name", ""))
 
-        # For 20ft: exclude ocean40
-        gt20_num = float(base_total_sheet) - float(ocean40)
+            total_per_20 += float(rr.get("per20_num") or 0.0)
+            total_per_40 += float(rr.get("per40_num") or 0.0)
 
-        # For 40ft: exclude ocean20
-        gt40_num = float(base_total_sheet) - float(ocean20)
+            if row_name_c == canon("trucking_charges_20ft"):
+                single20_truck_rate = (
+                    parse_price_to_float(rr.get("cost")) or float(rr.get("per20_num") or 0.0)
+                )
 
-        table_rows.append({
-            "name": "Grand total with 20ft container",
-            "cost": fmt_money(gt20_num) or "$0.00",
-            "validity": "",
-            "validity_status": "na",
+            elif row_name_c == canon("trucking_charges_2x20ft"):
+                pair20_truck_rate = (
+                    parse_price_to_float(rr.get("cost")) or 0.0
+                )
+
+        # 20ft-side shipment rule:
+        # base per20 total excluding single 20ft trucking
+        # multiplied by total physical 20ft containers
+        # then add trucking separately
+        base_20_without_single_truck = float(total_per_20)
+        if single_20_count > 0:
+            base_20_without_single_truck -= float(single20_truck_rate)
+
+        total_shipment_20 = 0.0
+        if total_20_units > 0:
+            total_shipment_20 = (
+                float(base_20_without_single_truck) * float(total_20_units)
+                + float(single20_truck_rate) * float(single_20_count)
+                + float(pair20_truck_rate) * float(pair_20_count)
+            )
+
+        # 40ft-side shipment rule:
+        # per 40ft total × selected 40ft quantity
+        total_shipment_40 = 0.0
+        if total_40_units > 0:
+            total_shipment_40 = float(total_per_40) * float(total_40_units)
+
+        total_shipment = float(total_shipment_20) + float(total_shipment_40)
+
+        if total_20_units > 0:
+            rr = _make_base_row_dict()
+            rr.update({
+                "name": "Grand total per 20ft container",
+                "cost": build_flat_cost_display(total_per_20),
+                "can_remove": False,
+                "include_in_total": False,
+                "is_grand_total": True,
+                "grand_mode": "per_unit",
+                "grand_key": "20",
+            })
+            table_rows.append(rr)
+
+        if total_40_units > 0:
+            rr = _make_base_row_dict()
+            rr.update({
+                "name": "Grand total per 40ft container",
+                "cost": build_flat_cost_display(total_per_40),
+                "can_remove": False,
+                "include_in_total": False,
+                "is_grand_total": True,
+                "grand_mode": "per_unit",
+                "grand_key": "40",
+            })
+            table_rows.append(rr)
+
+        rr = _make_base_row_dict()
+        rr.update({
+            "name": "Grand total shipment cost",
+            "cost": build_flat_cost_display(total_shipment),
             "can_remove": False,
             "include_in_total": False,
-            "cost_num": float(gt20_num),
             "is_grand_total": True,
-
-            "can_change": False,
-            "change_type": "",
-            "ocean_size": "",
-            "grand_kind": "20",
-            "options": []
+            "grand_mode": "shipment",
+            "grand_key": "shipment",
         })
-        table_rows.append({
-            "name": "Grand total with 40ft container",
-            "cost": fmt_money(gt40_num) or "$0.00",
-            "validity": "",
-            "validity_status": "na",
-            "can_remove": False,
-            "include_in_total": False,
-            "cost_num": float(gt40_num),
-            "is_grand_total": True,
+        table_rows.append(rr)
 
-            "can_change": False,
-            "change_type": "",
-            "ocean_size": "",
-            "grand_kind": "40",
-            "options": []
-        })
+        # -------------------------
+        # Display-only rows (RED, below totals)
+        # -------------------------
+        if insurance_display_num > 0:
+            _append_display_only_red_row(
+                table_rows=table_rows,
+                name="Insurance (Calculated)",
+                amount=float(insurance_display_num),
+                validity_text=""
+            )
+
+        _append_display_only_red_excel_row(
+            table_rows=table_rows,
+            row=row,
+            col_name="Switch_BL_charges",
+            label="Switch_BL_charges"
+        )
+
+        if incurrence_num > 0:
+            _append_display_only_red_row(
+                table_rows=table_rows,
+                name="Incurrence Charges (Not Included in Totals)",
+                amount=float(incurrence_num),
+                validity_text=""
+            )
 
         results.append({
-            "validity_label": validity_label,
-            "validity_kind": validity_kind,
-            "addr_warning": " ".join(addr_warning_notes).strip(),
+            "title": "Matched Quote",
+            "match_note": " ".join(addr_warning_notes).strip(),
             "table_rows": table_rows
         })
 
     best_text = "Best Option available based on rate validity and match."
     return results[: max(1, int(limit or 1))], best_text, None
-
-
-
-# if results:
-#     results = [next((x for x in results if x.get("is_best")), results[0])]
-#     return results, best_text, None
-
-
-
 # -------------------------
 # TEMPLATE HELPERS
 # -------------------------
+
 def build_display_items_for_submitted(data: Dict[str, Any]) -> List[Dict[str, str]]:
     items: List[Dict[str, str]] = []
 
@@ -1990,12 +2934,14 @@ def build_display_items_for_submitted(data: Dict[str, Any]) -> List[Dict[str, st
     add("Company", "company_name")
     add("Salesperson Name", "salesperson_name")
     add("Container Ownership", "container_ownership")
-    add("SOC Custom Clearance Charges", "soc_clearance_charges")
+    add("SOC Container Custom Clearance Charges 20ft", "soc_clearance_charges_20ft")
+    add("SOC Container Custom Clearance Charges 40ft", "soc_clearance_charges_40ft")
+    add("SOC Container Selling Price 20ft", "soc_selling_price_20ft")
+    add("SOC Container Selling Price 40ft", "soc_selling_price_40ft")
     add("Incoterm for Origin", "incoterm_origin")
     add("Incoterm for Destination", "incoterm_destination")
     add("Port of Load", "port_of_loading")
-    add("Port of Destination", "port_of_destination")
-
+    add("Port of Discharge", "port_of_destination")
 
     add("Pick Up Point 1 - Factory / Warehouse address", "shipping_from_1_address")
     add("Pick Up Point 1 - City", "shipping_from_1_city")
@@ -2034,12 +2980,12 @@ def build_display_items_for_submitted(data: Dict[str, Any]) -> List[Dict[str, st
     add("Transit Border 3", "transit_border_3")
     add("Transit Border 4", "transit_border_4")
 
-
     add("Selected Route ID", "selected_route_id")
     add("Selected Route", "selected_route_text")
     add("Route Status", "selected_route_status")
+    add("Route Type", "selected_route_type")
+    add("Route Mode", "selected_route_mode_label")
     add("Transit Time (Days)", "selected_route_transit_days")
-    add("Custom Route", "custom_route_text")
 
     add("Cargo Type", "cargo_type")
     add("Packaging Type", "packaging_type")
@@ -2075,14 +3021,13 @@ def build_display_items_for_submitted(data: Dict[str, Any]) -> List[Dict[str, st
     add("Insurance Amount", "insurance_amount")
 
     add("Miscellaneous Cost", "misc_cost")
+    add("Incurrence Charges", "incurrence_charges")
     add("Special Cost Option", "special_cost_option")
     for i in range(1, 11):
         add(f"Special Reason {i}", f"special_reason_{i}")
         add(f"Special Cost {i}", f"special_cost_{i}")
 
-# ✅ add total only ONCE (outside loop)
     add("Special Costs Total", "special_cost_total")
-
     add("Shipment Type", "shipment_type")
     add("Timestamp", "timestamp")
 
@@ -2123,6 +3068,7 @@ def index():
         error_msg=None
     )
 
+
 from flask import jsonify
 
 def _norm(s: str) -> str:
@@ -2130,81 +3076,23 @@ def _norm(s: str) -> str:
 
 def build_routes_for_pol_pod(pol: str, pod: str):
     """
-    Returns: (routes_list, best_route_id, route_error_msg)
-
-    Expected route dict keys (flexible):
-    - id
-    - title
-    - path
-    - pol / pod   (or port_of_loading / port_of_destination)
-    - route_status (open/closed)
-    - transit_time_days: {min,max} OR transit_min/transit_max
+    Legacy helper kept only for compatibility.
+    Route matching now uses get_matching_routes(...) with route_type-aware logic.
     """
-    pol_n = _norm(pol)
-    pod_n = _norm(pod)
-
-    routes = []
-    best_route_id = None
-    route_error_msg = ""
-
-    # You already have ROUTES_JSON_FILE = "routes.json"
-    if not os.path.exists(ROUTES_JSON_FILE):
-        return [], None, "routes.json not found"
-
-    try:
-        with open(ROUTES_JSON_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except Exception as e:
-        return [], None, f"Failed to read routes.json: {e}"
-
-    # data can be list or dict wrapper
-    all_routes = data.get("routes") if isinstance(data, dict) else data
-    if not isinstance(all_routes, list):
-        return [], None, "Invalid routes.json format"
-
-    for r in all_routes:
-        if not isinstance(r, dict):
-            continue
-
-        r_pol = _norm(r.get("pol") or r.get("port_of_loading") or "")
-        r_pod = _norm(r.get("pod") or r.get("port_of_destination") or "")
-
-        # Strict match (same behavior as old stage routes should have)
-        if r_pol == pol_n and r_pod == pod_n:
-            routes.append(r)
-
-    if not routes:
-        return [], None, ""
-
-    # pick "best" route:
-    # 1) prefer open
-    # 2) then prefer smallest transit min
-    def _transit_min(rr):
-        t = rr.get("transit_time_days") or {}
-        if isinstance(t, dict) and t.get("min") is not None:
-            return t.get("min")
-        if rr.get("transit_min") is not None:
-            return rr.get("transit_min")
-        return 10**9
-
-    routes_sorted = sorted(
-        routes,
-        key=lambda rr: (
-            route_status_rank(rr.get("route_status", "")),
-            _transit_min(rr)
-        )
-    )
-    best_route_id = routes_sorted[0].get("id")
-
-    return routes, best_route_id, route_error_msg
+    routes, best_route_id = get_matching_routes(pol=pol, pod=pod)
+    return routes, best_route_id, ""
 
 
 @app.post("/api/routes")
 def api_routes():
     pol = (request.form.get("port_of_loading") or "").strip()
     pod = (request.form.get("port_of_destination") or "").strip()
+
     origin_city = (request.form.get("origin_city") or "").strip()
+    origin_country = (request.form.get("origin_country") or "").strip()
+
     destination_city = (request.form.get("destination_city") or "").strip()
+    destination_country = (request.form.get("destination_country") or "").strip()
 
     transit_borders = [
         (request.form.get("transit_border_1") or "").strip(),
@@ -2212,19 +3100,20 @@ def api_routes():
         (request.form.get("transit_border_3") or "").strip(),
         (request.form.get("transit_border_4") or "").strip(),
     ]
-    if not pol or not pod:
+
+    if not pol and not origin_city and not origin_country:
         return jsonify({"ok": False, "routes": [], "best_route_id": None, "route_error_msg": ""}), 200
 
     routes, best_route_id = get_matching_routes(
         pol=pol,
         pod=pod,
         origin_city=origin_city,
+        origin_country=origin_country,
         destination_city=destination_city,
+        destination_country=destination_country,
         transit_borders=transit_borders
     )
-    route_error_msg = ""
 
-    # Normalize payload for frontend
     payload = []
     for r in routes:
         t = r.get("transit_time_days") if isinstance(r.get("transit_time_days"), dict) else {}
@@ -2233,7 +3122,12 @@ def api_routes():
             "title": r.get("title", "") or f"Route {r.get('id','')}",
             "path": r.get("path", "") or "",
             "route_status": (r.get("route_status") or "open").lower(),
+            "status_label": r.get("status_label", "") or "",
+            "route_type": r.get("route_type", "") or "",
+            "mode_label": r.get("mode_label", "") or "",
+            "modes": r.get("modes", []) or [],
             "is_recent": bool(r.get("is_recent", False)),
+            "is_best": bool(r.get("is_best", False)),
             "transit_min": t.get("min") if isinstance(t, dict) else r.get("transit_min"),
             "transit_max": t.get("max") if isinstance(t, dict) else r.get("transit_max"),
         })
@@ -2242,7 +3136,7 @@ def api_routes():
         "ok": True,
         "routes": payload,
         "best_route_id": str(best_route_id) if best_route_id is not None else None,
-        "route_error_msg": route_error_msg or ""
+        "route_error_msg": ""
     }), 200
 
 @app.route("/submit", methods=["POST"])
@@ -2255,10 +3149,11 @@ def submit():
     # -------------------------
     # read POL/POD (up to 4 each)
     # -------------------------
-    # -------------------------
-    # read Pick Up / Delivery Point Details (up to 4 each)
-    # Match routes ONLY on City (POL city vs POD city)
-    # -------------------------
+
+ # read Pick Up / Delivery Point Details (up to 4 each)
+# Route matching now uses:
+# origin city/country -> POL -> POD(optional alternative) -> destination city/country
+# depending on route_type from routes.json
     pols: List[Dict[str, str]] = []
     pods: List[Dict[str, str]] = []
 
@@ -2280,8 +3175,19 @@ def submit():
     company_name = request.form.get("company_name", "").strip()
     salesperson_name = request.form.get("salesperson_name", "").strip()
     container_ownership = request.form.get("container_ownership", "").strip()
-    soc_clearance_charges_raw = request.form.get("soc_clearance_charges", "").strip()
-    soc_clearance_charges_saved = soc_clearance_charges_raw
+
+    soc_clearance_charges_20ft_raw = request.form.get("soc_clearance_charges_20ft", "").strip()
+    soc_clearance_charges_20ft_saved = soc_clearance_charges_20ft_raw
+
+    soc_clearance_charges_40ft_raw = request.form.get("soc_clearance_charges_40ft", "").strip()
+    soc_clearance_charges_40ft_saved = soc_clearance_charges_40ft_raw
+
+    soc_selling_price_20ft_raw = request.form.get("soc_selling_price_20ft", "").strip()
+    soc_selling_price_20ft_saved = soc_selling_price_20ft_raw
+
+    soc_selling_price_40ft_raw = request.form.get("soc_selling_price_40ft", "").strip()
+    soc_selling_price_40ft_saved = soc_selling_price_40ft_raw
+
     incoterm_origin = request.form.get("incoterm_origin", "").strip()
     incoterm_destination = request.form.get("incoterm_destination", "").strip()
     port_of_loading = request.form.get("port_of_loading", "").strip()
@@ -2301,13 +3207,22 @@ def submit():
     delivery_required = inc_dest_code in {"DAP", "DPU", "DDP", "DDU"}
     delivery_optional = inc_dest_code in {"CPT", "CIP"}
 
-    shipping_from_1_city = pols[0]["city"] if len(pols) > 0 else ""
-    destination_1_city = pods[0]["city"] if len(pods) > 0 else ""
+    # RAW values for ROUTE MATCHING (do not overwrite these)
+    route_match_origin_city = pols[0]["city"].strip() if len(pols) > 0 else ""
+    route_match_origin_country = pols[0]["country"].strip() if len(pols) > 0 else ""
+    route_match_destination_city = pods[0]["city"].strip() if len(pods) > 0 else ""
+    route_match_destination_country = pods[0]["country"].strip() if len(pods) > 0 else ""
+
+    # WORKING values for PRICE / QUOTE LOGIC
+    # These may use incoterm fallback, but route matching must not.
+    shipping_from_1_city = route_match_origin_city
+    destination_1_city = route_match_destination_city
+
     if (not origin_open) and (not shipping_from_1_city):
         shipping_from_1_city = port_of_loading
-    
+
     if (not delivery_required) and (not delivery_optional) and (not destination_1_city):
-            destination_1_city = port_of_destination
+        destination_1_city = port_of_destination
 
 
     shipment_type = request.form.get("shipment_type", "").strip()
@@ -2426,11 +3341,38 @@ def submit():
         except Exception:
             return 0
 
-    size_20ft_count = to_int_or_zero(size_20ft_count_raw)
+    def to_20ft_count(x: str) -> int:
+        """
+        20ft is allowed only as 0 or 1.
+        Anything invalid/non-positive becomes 0.
+        Anything above 1 is kept as-is temporarily so we can show validation error.
+        """
+        try:
+            v = int(x)
+            if v <= 0:
+                return 0
+            return v
+        except Exception:
+            return 0
+
+    size_20ft_count = to_20ft_count(size_20ft_count_raw)
     size_40ft_count = to_int_or_zero(size_40ft_count_raw)
     size_2x20ft_count = to_int_or_zero(size_2x20ft_count_raw)
 
-    total_containers = size_20ft_count + size_40ft_count + size_2x20ft_count
+    # 20ft container can only be 0 or 1
+    if size_20ft_count > 1:
+        route_error_msg = "20ft container quantity can only be 1. Please select either 0 or 1 for 20ft."
+
+    # Physical container count:
+    # - single 20ft counts as 1
+    # - 40ft counts as 1 each
+    # - 2x20ft pair counts as 2 physical containers per entered pair
+    total_containers = (
+        int(size_20ft_count or 0)
+        + int(size_40ft_count or 0)
+        + (int(size_2x20ft_count or 0) * 2)
+    )
+
     if total_containers <= 0:
         # fallback safety (frontend already checks this)
         total_containers = 0
@@ -2483,8 +3425,12 @@ def submit():
         insurance_rate_saved = "none"
 
     insurance_amount_saved = fmt_money(insurance_amount_num) if insurance_amount_num is not None else ""
+
     misc_cost_raw = request.form.get("misc_cost", "").strip()
     misc_cost_saved = misc_cost_raw
+
+    incurrence_charges_raw = request.form.get("incurrence_charges", "").strip()
+    incurrence_charges_saved = incurrence_charges_raw
 
 
 
@@ -2511,7 +3457,10 @@ def submit():
         "company_name": company_name,
         "salesperson_name": salesperson_name,
         "container_ownership": container_ownership,
-        "soc_clearance_charges": soc_clearance_charges_saved,
+        "soc_clearance_charges_20ft": soc_clearance_charges_20ft_saved,
+        "soc_clearance_charges_40ft": soc_clearance_charges_40ft_saved,
+        "soc_selling_price_20ft": soc_selling_price_20ft_saved,
+        "soc_selling_price_40ft": soc_selling_price_40ft_saved,
         "incoterm_origin": incoterm_origin,
         "incoterm_destination": incoterm_destination,
 
@@ -2597,6 +3546,7 @@ def submit():
         "cargo_value": cargo_value_raw,
         "insurance_rate": insurance_rate_raw,
         "misc_cost": misc_cost_saved,
+        "incurrence_charges": incurrence_charges_saved,
 
         "special_cost_option": special_cost_option,
         "shipment_type": shipment_type,
@@ -2612,17 +3562,19 @@ def submit():
     # ROUTE MATCHING (POL/POD only)
     # -------------------------
     matched_routes, best_route_id = get_matching_routes(
-        pol=port_of_loading,
-        pod=port_of_destination,
-        origin_city=shipping_from_1_city,
-        destination_city=destination_1_city,
-         transit_borders=[
-            transit_border_1,
-            transit_border_2,
-            transit_border_3,
-            transit_border_4,
-        ]
-    )
+    pol=port_of_loading,
+    pod=port_of_destination,
+    origin_city=route_match_origin_city,
+    origin_country=route_match_origin_country,
+    destination_city=route_match_destination_city,
+    destination_country=route_match_destination_country,
+    transit_borders=[
+        transit_border_1,
+        transit_border_2,
+        transit_border_3,
+        transit_border_4,
+    ]
+)
 
     recent_routes = get_recent_routes(port_of_loading, port_of_destination, limit=5)
     all_routes = matched_routes + recent_routes
@@ -2664,45 +3616,22 @@ def submit():
             best_text=None,
             error_msg=None
         )
-
-    # -------------------------
+      # -------------------------
     # GENERATE step
     # -------------------------
     selected_route_id = (request.form.get("selected_route_id", "") or request.form.get("selected_route", "")).strip()
-
-    own_route_text = (
-        request.form.get("own_route_text", "")
-            or request.form.get("custom_route_text", "")
-            or request.form.get("selected_route_text", "")
-    ).strip()
     confirm_closed = (request.form.get("confirm_closed_route", "") or request.form.get("confirm_closed", "")).strip().lower()
-
-    # ✅ Extra hard validation: user must pick a route or OWN
-    if not selected_route_id:
-        route_error_msg = "Please select one route or choose 'My own route'."
-    elif selected_route_id == "OWN" and not own_route_text:
-        route_error_msg = "Please type your own route."
 
     selected_route_text = None
     selected_route_status = ""
     selected_route_transit_days = ""
+    selected_route_type = ""
+    selected_route_mode_label = ""
 
+    # Route selection is required only when routes actually exist.
     if all_routes:
         if not selected_route_id:
-            route_error_msg = "Please select one route or choose 'My own route'."
-        elif selected_route_id == "OWN":
-            if not own_route_text:
-                route_error_msg = "Please type your own route."
-            else:
-                pol_ok = canon(port_of_loading) in canon(own_route_text)
-                pod_ok = canon(port_of_destination) in canon(own_route_text)
-                if not (pol_ok and pod_ok):
-                    route_error_msg = "Your custom route must contain Pick Up City and Delivery City."
-                else:
-                    selected_route_text = own_route_text.strip()
-                    selected_route_status = "open"
-                    selected_route_transit_days = ""
-                    save_route_history(port_of_loading, port_of_destination, selected_route_text)
+            route_error_msg = "Please select one route."
         else:
             chosen = next((r for r in all_routes if str(r.get("id")) == selected_route_id), None)
             if not chosen:
@@ -2710,6 +3639,9 @@ def submit():
             else:
                 selected_route_text = str(chosen.get("path", "")).strip()
                 selected_route_status = (chosen.get("route_status") or "open").strip().lower()
+                selected_route_type = normalize_route_type(chosen.get("route_type"))
+                selected_route_mode_label = chosen.get("mode_label", "") or route_mode_label(chosen)
+
                 tt = chosen.get("transit_time_days") or {}
                 if isinstance(tt, dict) and tt.get("min") is not None and tt.get("max") is not None:
                     selected_route_transit_days = f"{tt.get('min')}-{tt.get('max')}"
@@ -2723,49 +3655,16 @@ def submit():
                         route_error_msg = "Your selected route is marked NOT SURE. Please confirm you want to proceed with this uncertain route."
                     elif selected_route_status == "not used":
                         route_error_msg = "Your selected route is marked NOT USED. Please confirm you want to proceed with this route."
-    else:
-        if selected_route_id == "OWN":
-            if not own_route_text:
-                route_error_msg = "No routes found for now. Please type your own route."
-            else:
-                pol_ok = canon(shipping_from_1_city) in canon(own_route_text)
-                pod_ok = canon(destination_1_city) in canon(own_route_text)
-                if not (pol_ok and pod_ok):
-                    route_error_msg = "Your custom route must contain Pick Up Point and Point of Delivery (POL and POD)."
-                else:
-                    selected_route_text = own_route_text.strip()
-                    selected_route_status = "open"
-                    selected_route_transit_days = ""
-                    save_route_history(port_of_loading, port_of_destination, selected_route_text)
-        else:
-            route_error_msg = "No routes found for now. Please choose 'My own route' and type your route."
-
-    # Validate mandatory dynamic fields
-    ct = canon(container_type)
-    is_open_or_flat = ("open top" in ct) or ("flat rack" in ct)
-    is_reefer = ("reefer" in ct)
-    is_open_top_exact = (ct == canon("Open Top Container"))
-
-    if is_open_or_flat:
-        if not width_ft or not height_ft:
-            route_error_msg = "Width and Height are required for Open Top / Flat Rack."
-
-# ✅ New: Open Top requires In-cage / Out-of-cage
-    if is_open_top_exact:
-        if canon(open_top_cage_option) not in {canon("In-cage"), canon("Out-of-cage")}:
-            route_error_msg = "Please select In-cage or Out-of-cage for Open Top Container."
-
-    if is_reefer:
-        if not temperature_c or not str(temperature_c).strip():
-            route_error_msg = "Temperature is required for Reefer."
-
 
     data: Dict[str, Any] = {
         "quote_id": f"QUOTE-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
         "company_name": company_name,
         "salesperson_name": salesperson_name,
         "container_ownership": container_ownership,
-        "soc_clearance_charges": soc_clearance_charges_saved,
+        "soc_clearance_charges_20ft": soc_clearance_charges_20ft_saved,
+        "soc_clearance_charges_40ft": soc_clearance_charges_40ft_saved,
+        "soc_selling_price_20ft": soc_selling_price_20ft_saved,
+        "soc_selling_price_40ft": soc_selling_price_40ft_saved,
         "incoterm_origin": incoterm_origin,
         "incoterm_destination": incoterm_destination,
 
@@ -2804,8 +3703,6 @@ def submit():
         "port_of_loading": port_of_loading,
         "port_of_destination": port_of_destination,
 
-
-
         "transit_border_1": transit_border_1,
         "transit_border_2": transit_border_2,
         "transit_border_3": transit_border_3,
@@ -2815,7 +3712,8 @@ def submit():
         "selected_route_text": selected_route_text if selected_route_text else "",
         "selected_route_status": selected_route_status,
         "selected_route_transit_days": selected_route_transit_days,
-        "custom_route_text": own_route_text if selected_route_id == "OWN" else "",
+        "selected_route_type": selected_route_type,
+        "selected_route_mode_label": selected_route_mode_label,
 
         "cargo_type": cargo_type,
         "packaging_type": packaging_type,
@@ -2848,7 +3746,6 @@ def submit():
         "size_2x20ft_selected": "Yes" if size_2x20ft_count > 0 else "",
         "size_2x20ft_count": size_2x20ft_count,
 
-
         "width_ft": width_ft,
         "height_ft": height_ft,
         "temperature_c": temperature_c,
@@ -2857,17 +3754,19 @@ def submit():
         "insurance_rate": insurance_rate_saved,
         "insurance_amount": insurance_amount_saved,
         "misc_cost": misc_cost_saved,
+        "incurrence_charges": incurrence_charges_saved,
 
         "special_cost_option": special_cost_option,
         "special_cost_total": float(special_cost_total),
         "shipment_type": shipment_type,
-
         "timestamp": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
     }
+
     for i in range(1, 11):
         data[f"special_reason_{i}"] = request.form.get(f"special_reason_{i}", "").strip()
         data[f"special_cost_{i}"] = request.form.get(f"special_cost_{i}", "").strip()
 
+    save_warning_msg: Optional[str] = None
 
     if route_error_msg:
         return render_template(
@@ -2895,47 +3794,53 @@ def submit():
             error_msg=None
         )
 
-    save_to_excel(data)
-    
     rates, best_text, error_msg = get_strict_quotes(
-    pol_port=port_of_loading,
-    pod_port=port_of_destination,
+        pol_port=port_of_loading,
+        pod_port=port_of_destination,
 
-    incoterm_origin=incoterm_origin,
-    incoterm_destination=incoterm_destination,
+        incoterm_origin=incoterm_origin,
+        incoterm_destination=incoterm_destination,
+        selected_route_type=selected_route_type,
+        selected_route_mode_label=selected_route_mode_label,
 
-    origin_address=pols[0]["address"],
-    origin_city=pols[0]["city"],
-    origin_country=pols[0]["country"],
+        origin_address=pols[0]["address"],
+        origin_city=shipping_from_1_city,
+        origin_country=pols[0]["country"],
 
-    dest_address=pods[0]["address"],
-    dest_city=pods[0]["city"],
-    dest_country=pods[0]["country"],
+        dest_address=pods[0]["address"],
+        dest_city=destination_1_city,
+        dest_country=pods[0]["country"],
 
-    container_size_label=(container_size_summary if container_size_summary else ""),
-    
-    # ✅ NEW: selected route filter
-    selected_route_id=selected_route_id,
-    selected_route_text=selected_route_text if selected_route_text else "",
+        container_size_label=(container_size_summary if container_size_summary else ""),
 
-    size_20ft_count=size_20ft_count,
-    size_40ft_count=size_40ft_count,
-    size_2x20ft_count=size_2x20ft_count,
+        selected_route_id=selected_route_id,
+        selected_route_text=selected_route_text if selected_route_text else "",
 
-    container_ownership=container_ownership,
-    soc_clearance_cost_value=soc_clearance_charges_saved,
-    lifting_labor_required=lifting_labor_required,
-    offloading_responsible=offloading_responsible,
+        size_20ft_count=size_20ft_count,
+        size_40ft_count=size_40ft_count,
+        size_2x20ft_count=size_2x20ft_count,
 
-    special_cost_lines=special_cost_items,
+        container_ownership=container_ownership,
+        soc_clearance_cost_20ft_value=soc_clearance_charges_20ft_saved,
+        soc_clearance_cost_40ft_value=soc_clearance_charges_40ft_saved,
+        soc_selling_price_20ft_value=soc_selling_price_20ft_saved,
+        soc_selling_price_40ft_value=soc_selling_price_40ft_saved,
+        lifting_labor_required=lifting_labor_required,
+        offloading_responsible=offloading_responsible,
 
-    # ✅ NEW correct extras
-    insurance_amount_num=insurance_amount_num,
-    misc_cost_value=misc_cost_saved,
+        special_cost_lines=special_cost_items,
 
-    limit=1
-)
-    
+        insurance_amount_num=insurance_amount_num,
+        incurrence_charges_value=incurrence_charges_saved,
+        misc_cost_value=misc_cost_saved,
+
+        limit=1
+    )
+
+    save_ok, save_msg = save_to_excel(data)
+    if not save_ok:
+        save_warning_msg = save_msg
+
     submitted_items = build_display_items_for_submitted(data)
 
     return render_template(
@@ -2949,20 +3854,19 @@ def submit():
         packaging_types=get_packaging_types(),
 
         stage="result",
-        form_data=empty_form_data(),
+        form_data=form_data,
         submitted=True,
         submitted_items=submitted_items,
 
-        routes=[],
-        best_route_id=None,
-        selected_route_id=None,
-        route_error_msg=None,
+        routes=all_routes,
+        best_route_id=best_route_id_all,
+        selected_route_id=selected_route_id if selected_route_id else None,
+        route_error_msg=route_error_msg,
 
         rates=rates,
         best_text=best_text,
-        error_msg=error_msg
+        error_msg=(f"{error_msg} {save_warning_msg}".strip() if error_msg and save_warning_msg else (error_msg or save_warning_msg))
     )
-
 
 if __name__ == "__main__":
     try:

@@ -35,19 +35,26 @@
         }
 
         /* Layout */
-        .container-fluid { padding-left: 14px; padding-right: 14px; }
-        .form-card{
-            width:100%;
-            max-width:1600px;
-            margin:auto;
-            border-radius: var(--radius);
-            background: rgba(255,255,255,.65);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            border: 1px solid rgba(219,227,239,.85);
-            box-shadow: var(--shadow);
-            animation: pageIn .45s ease-out both;
-        }
+      /* Layout */
+.container-fluid {
+    padding-left: 14px;
+    padding-right: 14px;
+    padding-top: 18px;
+    padding-bottom: 32px;
+}
+
+.form-card{
+    width:100%;
+    max-width:1600px;
+    margin:auto;
+    border-radius: var(--radius);
+    background: rgba(255,255,255,.65);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(219,227,239,.85);
+    box-shadow: var(--shadow);
+    animation: pageIn .45s ease-out both;
+}
 
         @keyframes pageIn{
             from{ opacity:0; transform: translateY(10px); }
@@ -56,40 +63,57 @@
 
         .card{ border:none; border-radius: var(--radius); }
 
-        /* Header */
-        .page-head{
-            display:flex;
-            align-items:center;
-            justify-content:space-between;
-            gap: 12px;
-            padding-bottom: 10px;
-            border-bottom: 1px solid rgba(219,227,239,.85);
-            margin-bottom: 12px;
-        }
-        .brand{
-            display:flex; align-items:center; gap: 10px;
-        }
-        .brand-badge{
-            width:42px; height:42px;
-            border-radius: 12px;
-            background: linear-gradient(135deg, rgba(30,94,255,.95), rgba(47,140,255,.75));
-            box-shadow: 0 10px 24px rgba(30,94,255,.22);
-            display:flex; align-items:center; justify-content:center;
-            color:#fff; font-weight:900; letter-spacing:.5px;
-        }
-        .brand-title{
-            line-height: 1.1;
-        }
-        .brand-title .t1{
-            font-weight: 900;
-            font-size: 18px;
-            color: var(--text);
-        }
-        .brand-title .t2{
-            font-size: 12px;
-            color: var(--muted);
-            margin-top: 2px;
-        }
+/* Header */
+.page-head{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap: 12px;
+    padding: 8px 8px 14px;
+    border-bottom: 1px solid rgba(219,227,239,.85);
+    margin-bottom: 18px;
+    min-height: 78px;
+    scroll-margin-top: 8px;
+}
+
+.brand{
+    display:flex;
+    align-items:center;
+    gap: 12px;
+}
+
+.brand-badge{
+    width:48px;
+    height:48px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, rgba(30,94,255,.95), rgba(47,140,255,.75));
+    box-shadow: 0 10px 24px rgba(30,94,255,.22);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    color:#fff;
+    font-weight:900;
+    font-size: 22px;
+    letter-spacing:.5px;
+    flex: 0 0 48px;
+}
+
+.brand-title{
+    line-height: 1.1;
+}
+
+.brand-title .t1{
+    font-weight: 900;
+    font-size: 19px;
+    color: var(--text);
+    margin-bottom: 2px;
+}
+
+.brand-title .t2{
+    font-size: 13px;
+    color: var(--muted);
+    margin-top: 2px;
+}
 
         /* Form spacing tighter */
         .row.g-3{ --bs-gutter-y: .75rem; --bs-gutter-x: .75rem; } /* reduce blank spaces */
@@ -131,14 +155,14 @@
     box-shadow: var(--shadow-soft);
     animation: fadeUp .35s ease both;
 }
-/* Smooth hide/show so layout auto-adjusts with animation */
 /* Smooth hide/show + auto space adjustment */
 .hidden-by-incoterm{
     max-height: 0 !important;
     opacity: 0 !important;
     transform: translateY(-6px) scale(.99);
     margin: 0 !important;
-    padding: 0 !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
     overflow: hidden !important;
     pointer-events: none !important;
     border: 0 !important;
@@ -146,16 +170,23 @@
 
 /* Any block that animates open/close */
 .anim-block{
-    transition: max-height .35s ease, opacity .28s ease, transform .28s ease, margin .35s ease, padding .35s ease;
+    transition:
+        max-height .35s ease,
+        opacity .28s ease,
+        transform .28s ease,
+        margin .35s ease,
+        padding .35s ease;
     will-change: max-height, opacity, transform;
+    overflow: hidden;
 }
 
 /* When visible */
 .anim-block.is-open{
-    max-height: 2500px; /* large enough to contain content */
+    max-height: 12000px; /* much larger so large route lists do not overlap below sections */
     opacity: 1;
     transform: translateY(0) scale(1);
     pointer-events: auto;
+    overflow: visible;
 }
 
 /* Optional: smoother section reveal */
@@ -163,12 +194,19 @@
     animation: fadeUp .28s ease both;
 }
 
-/* When visible, ensure they have room to expand smoothly */
+/* When visible, ensure key expandable blocks have enough room */
 #originAddressBlock:not(.hidden-by-incoterm),
 #deliveryAddressBlock:not(.hidden-by-incoterm){
-    max-height: 2000px;
+    max-height: 3000px;
     opacity: 1;
     transform: translateY(0);
+    overflow: visible;
+}
+
+/* Routes block needs extra room because it can contain many cards */
+#routesWrap.anim-block.is-open{
+    max-height: 30000px !important;
+    overflow: visible !important;
 }
 
 
@@ -321,112 +359,172 @@
   100% { transform: scale(1);   box-shadow: none; }
 }
 
-        /* Route chooser */
-        .route-select-card{
-            border-radius: var(--radius);
-            border: 1px solid rgba(219,227,239,.95);
-            background: linear-gradient(180deg, rgba(255,255,255,.95), rgba(247,250,255,.95));
-            padding: 12px 14px;
-            box-shadow: var(--shadow-soft);
-            animation: fadeUp .35s ease both;
-        }
-        .route-select-title{
-            font-weight: 900;
-            color: var(--primary);
-            margin-bottom: 8px;
-        }
-        .route-choice{
-            border: 1px dashed rgba(219,227,239,.95);
-            border-radius: var(--radius);
-            padding: 10px 12px;
-            margin-top: 10px;
-            background: rgba(255,255,255,.9);
-            transition: transform .14s ease, box-shadow .2s ease, border-color .2s ease;
-        }
-        .route-choice:hover{
-            transform: translateY(-2px);
-            box-shadow: var(--shadow-soft);
-            border-color: rgba(30,94,255,.35);
-        }
-        .route-choice.best{
-            border: 2px solid rgba(30,94,255,.65);
-            background: linear-gradient(180deg, rgba(243,248,255,.98), rgba(255,255,255,.95));
-        }
-        .route-choice .route-name{ font-weight: 900; }
-        .route-choice .route-desc{ margin-top: 6px; color: #334155; }
+/* Route chooser */
+.route-select-card{
+    border-radius: var(--radius);
+    border: 1px solid rgba(219,227,239,.95);
+    background: linear-gradient(180deg, rgba(255,255,255,.95), rgba(247,250,255,.95));
+    padding: 12px 14px;
+    box-shadow: var(--shadow-soft);
+    animation: fadeUp .35s ease both;
+    position: relative;
+    z-index: 1;
+    overflow: visible;
+}
 
-        .badge-best-route{
-            background: linear-gradient(135deg, rgba(30,94,255,1), rgba(47,140,255,.95));
-            color: white;
-            font-weight: 900;
-            border-radius: 999px;
-            padding: 6px 10px;
-            font-size: 12px;
-            box-shadow: 0 8px 18px rgba(30,94,255,.22);
-        }
+.route-select-title{
+    font-weight: 900;
+    color: var(--primary);
+    margin-bottom: 8px;
+}
 
-        .badge-open{
-            background: rgba(209,231,221,.95);
-            color: #0f5132;
-            font-weight: 900;
-            border-radius: 999px;
-            padding: 6px 10px;
-            font-size: 12px;
-            text-transform: uppercase;
-        }
-        .badge-closed{
-            background: rgba(248,215,218,.95);
-            color: #842029;
-            font-weight: 900;
-            border-radius: 999px;
-            padding: 6px 10px;
-            font-size: 12px;
-            text-transform: uppercase;
-        }
-        .badge-not-sure{
-            background: rgba(255,243,205,.95);
-            color: #664d03;
-            font-weight: 900;
-            border-radius: 999px;
-            padding: 6px 10px;
-            font-size: 12px;
-            text-transform: uppercase;
-        }
-        .badge-not-used{
-            background: rgba(226,227,229,.95);
-            color: #41464b;
-            font-weight: 900;
-            border-radius: 999px;
-            padding: 6px 10px;
-            font-size: 12px;
-            text-transform: uppercase;
-        }
-        .badge-not-sure{
-            background: rgba(255,243,205,.95);
-            color: #664d03;
-            font-weight: 900;
-            border-radius: 999px;
-            padding: 6px 10px;
-            font-size: 12px;
-            text-transform: uppercase;
-        }
-        .badge-not-used{
-            background: rgba(226,227,229,.95);
-            color: #41464b;
-            font-weight: 900;
-            border-radius: 999px;
-            padding: 6px 10px;
-            font-size: 12px;
-            text-transform: uppercase;
-        }
-        .badge-tt{
-            background: rgba(231,241,255,.95);
-            color: #0b3bda;
-            font-weight: 900;
-            border-radius: 999px;
-            padding: 6px 10px;
-            font-size: 12px;
-        }
+.route-results-stack{
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 100%;
+    overflow: visible;
+}
+
+.route-choice{
+    border: 1px dashed rgba(219,227,239,.95);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+    margin-top: 0;
+    background: rgba(255,255,255,.92);
+    transition: transform .14s ease, box-shadow .2s ease, border-color .2s ease;
+    position: relative;
+    width: 100%;
+    overflow: visible;
+}
+
+.route-choice:hover{
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-soft);
+    border-color: rgba(30,94,255,.35);
+}
+
+.route-choice.best{
+    border: 2px solid rgba(30,94,255,.65);
+    background: linear-gradient(180deg, rgba(243,248,255,.98), rgba(255,255,255,.96));
+}
+
+.route-head{
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    width: 100%;
+}
+
+.route-pick{
+    flex: 0 0 auto;
+    padding-top: 2px;
+}
+
+.route-body{
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.route-title-row{
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.route-choice .route-name{
+    font-weight: 900;
+    color: #1f2937;
+    line-height: 1.45;
+}
+
+.route-meta{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.route-choice .route-desc{
+    margin-top: 10px;
+    color: #475569;
+    line-height: 1.6;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+}
+
+.badge-best-route{
+    background: linear-gradient(135deg, rgba(30,94,255,1), rgba(47,140,255,.95));
+    color: white;
+    font-weight: 900;
+    border-radius: 999px;
+    padding: 6px 10px;
+    font-size: 12px;
+    box-shadow: 0 8px 18px rgba(30,94,255,.22);
+}
+
+.badge-open{
+    background: rgba(209,231,221,.95);
+    color: #0f5132;
+    font-weight: 900;
+    border-radius: 999px;
+    padding: 6px 10px;
+    font-size: 12px;
+    text-transform: uppercase;
+}
+.badge-closed{
+    background: rgba(248,215,218,.95);
+    color: #842029;
+    font-weight: 900;
+    border-radius: 999px;
+    padding: 6px 10px;
+    font-size: 12px;
+    text-transform: uppercase;
+}
+.badge-not-sure{
+    background: rgba(255,243,205,.95);
+    color: #664d03;
+    font-weight: 900;
+    border-radius: 999px;
+    padding: 6px 10px;
+    font-size: 12px;
+    text-transform: uppercase;
+}
+.badge-not-used{
+    background: rgba(226,227,229,.95);
+    color: #41464b;
+    font-weight: 900;
+    border-radius: 999px;
+    padding: 6px 10px;
+    font-size: 12px;
+    text-transform: uppercase;
+}
+.badge-tt{
+    background: rgba(231,241,255,.95);
+    color: #0b3bda;
+    font-weight: 900;
+    border-radius: 999px;
+    padding: 6px 10px;
+    font-size: 12px;
+}
+
+/* Prevent lower sections from visually sitting above long route lists */
+#routesWrap,
+#routesList{
+    position: relative;
+    width: 100%;
+    overflow: visible;
+    z-index: 1;
+}
+
+#routesWrap + .col-lg-6,
+#routesWrap + .col-12,
+#routesWrap ~ .col-lg-6,
+#routesWrap ~ .col-12{
+    position: relative;
+    z-index: 0;
+}
 
         /* Buttons */
         .btn{
@@ -490,23 +588,179 @@
     filter: brightness(0.95);
     color: #053b3b;
   }
+.separate-red-row td{
+    color: #dc3545 !important;
+    font-weight: 800;
+}
+
+/* =========================
+   Generate Loader Overlay
+   ========================= */
+.page-shell.loading .form-card{
+    filter: blur(6px);
+    transform: scale(.995);
+    pointer-events: none;
+    user-select: none;
+}
+
+.generate-overlay{
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(241, 245, 249, 0.42);
+    backdrop-filter: blur(10px) saturate(120%);
+    -webkit-backdrop-filter: blur(10px) saturate(120%);
+}
+
+.generate-overlay.show{
+    display: flex;
+    animation: overlayFadeIn .22s ease-out both;
+}
+
+@keyframes overlayFadeIn{
+    from{ opacity: 0; }
+    to{ opacity: 1; }
+}
+
+.generate-loader-card{
+    width: min(92vw, 430px);
+    border-radius: 24px;
+    padding: 28px 26px 24px;
+    background: rgba(255,255,255,.96);
+    border: 1px solid rgba(219,227,239,.95);
+    box-shadow: 0 24px 60px rgba(15,23,42,.18);
+    text-align: center;
+    filter: none !important;
+    transform: none !important;
+    pointer-events: auto;
+}
+
+.generate-loader-ring-wrap{
+    position: relative;
+    width: 108px;
+    height: 108px;
+    margin: 0 auto 18px;
+    filter: none !important;
+}
+
+.generate-loader-ring{
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 6px solid rgba(30,94,255,.12);
+    border-top-color: var(--primary);
+    border-right-color: var(--accent);
+    animation: spinLoader 1s linear infinite;
+    box-shadow: inset 0 0 18px rgba(30,94,255,.05);
+}
+
+.generate-loader-ring::after{
+    content: "";
+    position: absolute;
+    inset: 12px;
+    border-radius: 50%;
+    border: 4px solid rgba(47,140,255,.10);
+    border-bottom-color: rgba(20,184,166,.7);
+    animation: spinLoaderReverse 1.35s linear infinite;
+}
+
+.generate-loader-core{
+    position: absolute;
+    inset: 28px;
+    border-radius: 50%;
+    background:
+        radial-gradient(circle at 30% 30%, rgba(47,140,255,.95), rgba(30,94,255,.88) 55%, rgba(20,184,166,.82));
+    box-shadow:
+        0 10px 22px rgba(30,94,255,.24),
+        inset 0 2px 10px rgba(255,255,255,.26);
+    animation: pulseLoader 1.6s ease-in-out infinite;
+}
+
+@keyframes spinLoader{
+    from{ transform: rotate(0deg); }
+    to{ transform: rotate(360deg); }
+}
+
+@keyframes spinLoaderReverse{
+    from{ transform: rotate(360deg); }
+    to{ transform: rotate(0deg); }
+}
+
+@keyframes pulseLoader{
+    0%,100%{ transform: scale(1); }
+    50%{ transform: scale(1.06); }
+}
+
+.generate-loader-title{
+    font-size: 20px;
+    font-weight: 900;
+    color: #0f172a;
+    margin-bottom: 6px;
+}
+
+.generate-loader-text{
+    font-size: 14px;
+    color: #64748b;
+    margin-bottom: 0;
+}
+.result-bottom-actions{
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 18px;
+    margin-bottom: 36px;
+    padding-bottom: 8px;
+}
+
+.btn-page-utility{
+    min-width: 110px;
+}
+
+@media (max-width: 576px){
+    .result-bottom-actions{
+        justify-content: stretch;
+    }
+
+    .result-bottom-actions .btn{
+        flex: 1 1 auto;
+    }
+}
 
     </style>
 </head>
 
 <body class="py-3">
-<div class="container-fluid">
+<div class="container-fluid page-shell" id="pageShell">
+
+    <div class="generate-overlay" id="generateOverlay" aria-hidden="true">
+        <div class="generate-loader-card" role="status" aria-live="polite">
+            <div class="generate-loader-ring-wrap">
+                <div class="generate-loader-ring"></div>
+                <div class="generate-loader-core"></div>
+            </div>
+            <div class="generate-loader-title">Generating Quote</div>
+            <p class="generate-loader-text">The quote is being generated, please wait.</p>
+        </div>
+    </div>
+
     <div class="card p-3 p-md-4 form-card">
 
-        <div class="page-head">
+        <div class="page-head" id="appTopHeader">
             <div class="brand">
-                <div class="brand-badge">L</div>
+                <div class="brand-badge" id="appTopBadge">L</div>
                 <div class="brand-title">
-                    <div class="t1">Logenix — Quote Input</div>
-                    <div class="t2">Fill in shipment details to generate quotes</div>
+                    <div class="t1" id="appTopTitle">Logenix — Quote Input</div>
+                    <div class="t2" id="appTopSubtitle">Fill in shipment details to generate quotes</div>
                 </div>
             </div>
         </div>
+
+
 
         <datalist id="locations">
             {% for c in countries %}
@@ -751,10 +1005,10 @@
                             </div>
                             <div class="col-md-8">
                                 {% set s20cnt = form_data.size_20ft_count if form_data and form_data.size_20ft_count else "" %}
-                                <input type="number" step="1" min="1" class="form-control"
-                                       name="size_20ft_count" id="size_20ft_count"
-                                       placeholder="How many 20ft containers?"
-                                       value="{{ s20cnt }}">
+                                <input type="number" step="1" min="1" max="1" class="form-control"
+                                    name="size_20ft_count" id="size_20ft_count"
+                                    placeholder="How many 20ft containers? (Only 1 allowed)"
+                                    value="{{ s20cnt }}">
                             </div>
                         </div>
 
@@ -857,16 +1111,49 @@
                                 <label class="form-check-label" for="own_soc_log">SOC - Logenix Owned</label>
                             </div>
 
-                            <!-- SOC Logenix Owned: Custom Clearance Charges -->
-                            <div class="mt-2 anim-block" id="socClearanceWrap" style="display:none;">
-                                <label class="form-label">SOC Container Custom Clearance Charges</label>
-                                <input name="soc_clearance_charges" id="soc_clearance_charges"
-                                       class="form-control"
-                                       placeholder="e.g., 200$ or 250"
-                                       disabled
-                                       value="{{ form_data.soc_clearance_charges if form_data and form_data.soc_clearance_charges else '' }}">
-                                <div class="subtle-note">Required only when SOC - Logenix Owned is selected.</div>
-                            </div>
+<!-- SOC Logenix Owned: 20ft Custom Clearance Charges -->
+<div class="mt-2 anim-block" id="socClearance20Wrap" style="display:none;">
+    <label class="form-label">SOC Container Custom Clearance Charges 20ft</label>
+    <input name="soc_clearance_charges_20ft" id="soc_clearance_charges_20ft"
+           class="form-control"
+           placeholder="e.g., 200$ or 250"
+           disabled
+           value="{{ form_data.soc_clearance_charges_20ft if form_data and form_data.soc_clearance_charges_20ft else '' }}">
+    <div class="subtle-note">Shown only when SOC - Logenix Owned and 20ft is selected.</div>
+</div>
+
+<!-- SOC Logenix Owned: 40ft Custom Clearance Charges -->
+<div class="mt-2 anim-block" id="socClearance40Wrap" style="display:none;">
+    <label class="form-label">SOC Container Custom Clearance Charges 40ft</label>
+    <input name="soc_clearance_charges_40ft" id="soc_clearance_charges_40ft"
+           class="form-control"
+           placeholder="e.g., 300$ or 350"
+           disabled
+           value="{{ form_data.soc_clearance_charges_40ft if form_data and form_data.soc_clearance_charges_40ft else '' }}">
+    <div class="subtle-note">Shown only when SOC - Logenix Owned and 40ft is selected.</div>
+</div>
+
+<!-- SOC Logenix Owned: 20ft Selling Price -->
+<div class="mt-2 anim-block" id="socSelling20Wrap" style="display:none;">
+    <label class="form-label">SOC Container Selling Price 20ft</label>
+    <input name="soc_selling_price_20ft" id="soc_selling_price_20ft"
+           class="form-control"
+           placeholder="e.g., 500$ or 700"
+           disabled
+           value="{{ form_data.soc_selling_price_20ft if form_data and form_data.soc_selling_price_20ft else '' }}">
+    <div class="subtle-note">Shown only when SOC - Logenix Owned and 20ft is selected. This amount will deduct from per 20ft total only.</div>
+</div>
+
+<!-- SOC Logenix Owned: 40ft Selling Price -->
+<div class="mt-2 anim-block" id="socSelling40Wrap" style="display:none;">
+    <label class="form-label">SOC Container Selling Price 40ft</label>
+    <input name="soc_selling_price_40ft" id="soc_selling_price_40ft"
+           class="form-control"
+           placeholder="e.g., 800$ or 1000"
+           disabled
+           value="{{ form_data.soc_selling_price_40ft if form_data and form_data.soc_selling_price_40ft else '' }}">
+    <div class="subtle-note">Shown only when SOC - Logenix Owned and 40ft is selected. This amount will deduct from per 40ft total only.</div>
+</div>
 
                             <div class="form-check mt-1">
                                 <input class="form-check-input" type="radio" name="container_ownership" id="own_coc"
@@ -961,10 +1248,9 @@
                                            value="{{ form_data["shipping_from_" ~ i ~ "_address"] if form_data and form_data["shipping_from_" ~ i ~ "_address"] else '' }}">
 
                                     <label class="form-label mt-2">City</label>
-                                    <input name="shipping_from_{{ i }}_city" class="form-control origin-city" list="locations"
-                                           {% if i==1 %}required{% endif %}
-                                           placeholder="Start typing city..."
-                                           value="{{ form_data["shipping_from_" ~ i ~ "_city"] if form_data and form_data["shipping_from_" ~ i ~ "_city"] else '' }}">
+<input name="shipping_from_{{ i }}_city" class="form-control origin-city" list="locations"
+       placeholder="Start typing city..."
+       value="{{ form_data["shipping_from_" ~ i ~ "_city"] if form_data and form_data["shipping_from_" ~ i ~ "_city"] else '' }}">
 
                                     <label class="form-label mt-2">Country</label>
                                     <input name="shipping_from_{{ i }}_country" class="form-control origin-country" list="locations"
@@ -1094,7 +1380,7 @@
 
                     <!-- Port of Destination -->
                     <div class="col-lg-6">
-                        <label class="form-label">Port of Destination</label>
+                        <label class="form-label">Port of Discharge</label>
                         <input name="port_of_destination" id="port_of_destination" class="form-control" list="locations" required
                                placeholder="Start typing port of destination..."
                                value="{{ form_data.port_of_destination if form_data and form_data.port_of_destination else '' }}">
@@ -1152,10 +1438,9 @@
                                            value="{{ form_data["destination_" ~ i ~ "_address"] if form_data and form_data["destination_" ~ i ~ "_address"] else '' }}">
 
                                     <label class="form-label mt-2">City</label>
-                                    <input name="destination_{{ i }}_city" class="form-control delivery-city" list="locations"
-                                           {% if i==1 %}required{% endif %}
-                                           placeholder="Start typing city..."
-                                           value="{{ form_data["destination_" ~ i ~ "_city"] if form_data and form_data["destination_" ~ i ~ "_city"] else '' }}">
+<input name="destination_{{ i }}_city" class="form-control delivery-city" list="locations"
+       placeholder="Start typing city..."
+       value="{{ form_data["destination_" ~ i ~ "_city"] if form_data and form_data["destination_" ~ i ~ "_city"] else '' }}">
                                     <label class="form-label mt-2">Country</label>
                                     <input name="destination_{{ i }}_country" class="form-control delivery-country" list="locations"
                                            placeholder="Start typing country..."
@@ -1173,31 +1458,39 @@
   </button>
 </div>
 
-                    <!-- ROUTES: Auto opens after Delivery Point filled -->
+<!-- ROUTES: Auto opens after Delivery Point filled -->
 <div class="col-12 anim-block" id="routesWrap" style="display:none;">
     <div class="route-select-card mt-2">
         <div class="route-select-title">Ask Route (Choose a Route)</div>
 
-        <!-- One message container -->
         <div class="alert alert-warning mt-2 mb-2" id="routesMsg" style="display:none;"></div>
 
-        <!-- Routes list wrapper -->
-        <div id="routesList">
+        <div id="routesList" class="route-results-stack">
             {% if routes and routes|length > 0 %}
                 {% for r in routes %}
                 <div class="route-choice {% if r.id == best_route_id %}best{% endif %}">
-                    <div class="d-flex justify-content-between align-items-start">
-                        <div>
-                            <div class="route-name">
-                                <label class="form-check-label" for="route_{{ r.id }}">
+                    <div class="route-head">
+                        <div class="route-pick">
+                            <input class="form-check-input mt-0 route-radio"
+                                   type="radio"
+                                   name="selected_route_id"
+                                   id="route_{{ r.id }}"
+                                   value="{{ r.id }}"
+                                   data-status="{{ (r.route_status if r.route_status else 'open')|lower }}"
+                                   {% if selected_route_id == r.id %}checked{% endif %}>
+                        </div>
+
+                        <div class="route-body">
+                            <div class="route-title-row">
+                                <label class="form-check-label route-name" for="route_{{ r.id }}">
                                     {{ r.title }}
-                                    {% if r.id == best_route_id %}
-                                        <span class="badge-best-route ms-2">Best Route</span>
-                                    {% endif %}
                                 </label>
+                                {% if r.id == best_route_id %}
+                                    <span class="badge-best-route">Best Route</span>
+                                {% endif %}
                             </div>
 
-                            <div class="mt-2 d-flex flex-wrap gap-2">
+                            <div class="route-meta">
                                 {% set rs = (r.route_status if r.route_status else "open")|lower %}
                                 {% if rs == "closed" %}
                                     <span class="badge-closed">closed</span>
@@ -1207,6 +1500,14 @@
                                     <span class="badge-not-used">not used</span>
                                 {% else %}
                                     <span class="badge-open">open</span>
+                                {% endif %}
+
+                                {% if r.mode_label %}
+                                    <span class="badge-tt">Mode: {{ r.mode_label }}</span>
+                                {% endif %}
+
+                                {% if r.route_type %}
+                                    <span class="badge-tt">Type: {{ r.route_type }}</span>
                                 {% endif %}
 
                                 {% if r.transit_time_days and r.transit_time_days.min is not none and r.transit_time_days.max is not none %}
@@ -1221,20 +1522,10 @@
                                     <span class="badge bg-secondary">Recent</span>
                                 {% endif %}
                             </div>
-                        </div>
 
-                        <div class="d-flex align-items-center gap-2">
-                            <input class="form-check-input mt-0 route-radio"
-                                   type="radio"
-                                   name="selected_route_id"
-                                   id="route_{{ r.id }}"
-                                   value="{{ r.id }}"
-                                   data-status="{{ (r.route_status if r.route_status else 'open')|lower }}"
-                                   {% if selected_route_id == r.id %}checked{% endif %}>
+                            <div class="route-desc">{{ r.path }}</div>
                         </div>
                     </div>
-
-                    <div class="route-desc">{{ r.path }}</div>
                 </div>
                 {% endfor %}
             {% else %}
@@ -1315,6 +1606,7 @@
                                value="{{ form_data.misc_cost if form_data and form_data.misc_cost else '' }}">
                     </div>
 
+ 
                     <!-- Special cost block (unchanged structure) -->
                     <div class="col-12">
                         <div class="box">
@@ -1406,9 +1698,11 @@
             </div>
         </div>
 
-        <!-- Submit -->
+             <!-- Submit -->
 <div class="col-12 text-end mt-2">
-    <button class="btn btn-primary btn-lg px-4" type="submit" id="generateBtn">Generate</button>
+    <button class="btn btn-primary btn-lg px-4" type="submit" id="generateBtn">
+        <span class="generate-btn-text">Generate</span>
+    </button>
 </div>
 
     </div>
@@ -1441,7 +1735,7 @@
 {% if stage == "result" %}
   <hr class="my-4">
 
-  <h5 class="fw-bold text-primary">Matching Quotes</h5>
+  <h5 class="fw-bold text-primary" id="generatedQuoteHeader">Matching Quotes</h5>
 
   {% if error_msg %}
     <div class="alert alert-warning mt-3">{{ error_msg }}</div>
@@ -1482,23 +1776,23 @@
 
 <tbody>
   {% for row in r.table_rows %}
-  <tr
+  <tr class="{% if row.is_red_text %}separate-red-row{% endif %}"
     data-include="{{ 1 if row.include_in_total else 0 }}"
     data-costnum="{{ row.cost_num if row.cost_num is not none else 0 }}"
     data-isgrand="{{ 1 if row.is_grand_total else 0 }}"
-    data-grandkind="{{ row.grand_kind if row.grand_kind else '' }}"
-    data-oceansize="{% if row.name and ('Ocean Freight (20ft)' in row.name or 'Ocean Freight (40ft)' in row.name) %}{{ row.ocean_size if row.ocean_size else '' }}{% else %}{% endif %}"
+    data-grandmode="{{ row.grand_mode if row.grand_mode else '' }}"
+    data-grandkey="{{ row.grand_key if row.grand_key else '' }}"
+    data-per20="{{ row.per20_num if row.per20_num is not none else 0 }}"
+    data-per40="{{ row.per40_num if row.per40_num is not none else 0 }}"
+    data-ship20="{{ row.ship20_num if row.ship20_num is not none else 0 }}"
+    data-ship40="{{ row.ship40_num if row.ship40_num is not none else 0 }}"
+    data-shipcommon="{{ row.ship_common_num if row.ship_common_num is not none else 0 }}"
+    data-unitcount="{{ row.unit_count if row.unit_count is not none else 0 }}"
   >
     <td class="fw-semibold">{{ row.name }}</td>
 
- {% if row.is_grand_total %}
-  {% if row.grand_kind == "20" %}
-    <td class="fw-bold" id="grandTotal20Cell">{{ row.cost }}</td>
-  {% elif row.grand_kind == "40" %}
-    <td class="fw-bold" id="grandTotal40Cell">{{ row.cost }}</td>
-  {% else %}
-    <td class="fw-bold">{{ row.cost }}</td>
-  {% endif %}
+{% if row.is_grand_total %}
+  <td class="fw-bold gt-value-cell">{{ row.cost }}</td>
 {% else %}
   <td>{{ row.cost }}</td>
 {% endif %}
@@ -1570,6 +1864,15 @@
       No quotes found matching POL + POD + Commodity in <code>prices_updated.xlsx</code>.
     </p>
   {% endif %}
+
+  <div class="result-bottom-actions">
+    <button type="button" class="btn btn-outline-primary btn-page-utility" id="backToEditBtn">
+      Back
+    </button>
+    <button type="button" class="btn btn-outline-secondary btn-page-utility" id="refreshPageBtn">
+      Refresh
+    </button>
+  </div>
 {% endif %}
     </div>
 </div>
@@ -1615,41 +1918,84 @@
     if (addPolBtn) addPolBtn.addEventListener("click", () => showNextRow(polRows));
     if (addPodBtn) addPodBtn.addEventListener("click", () => showNextRow(podRows));
 
-        // ----------------------------
-    // Container Ownership -> SOC Clearance input show/hide
-    // ----------------------------
-    function getOwnershipValue() {
-        const el = document.querySelector('input[name="container_ownership"]:checked');
-        return el ? (el.value || "") : "";
+// ----------------------------
+// Container Ownership + Container Size -> sized SOC fields show/hide
+// ----------------------------
+function getOwnershipValue() {
+    const el = document.querySelector('input[name="container_ownership"]:checked');
+    return el ? (el.value || "") : "";
+}
+
+function syncSocClearanceUI() {
+    const own = (getOwnershipValue() || "").trim().toLowerCase();
+    const isSocLogenix = own === "soc - logenix owned";
+
+    const has20 = !!(size20Cb && size20Cb.checked);
+    const has40 = !!(size40Cb && size40Cb.checked);
+
+    const clearance20Wrap = document.getElementById("socClearance20Wrap");
+    const clearance20Inp = document.getElementById("soc_clearance_charges_20ft");
+
+    const clearance40Wrap = document.getElementById("socClearance40Wrap");
+    const clearance40Inp = document.getElementById("soc_clearance_charges_40ft");
+
+    const selling20Wrap = document.getElementById("socSelling20Wrap");
+    const selling20Inp = document.getElementById("soc_selling_price_20ft");
+
+    const selling40Wrap = document.getElementById("socSelling40Wrap");
+    const selling40Inp = document.getElementById("soc_selling_price_40ft");
+
+    if (!clearance20Wrap || !clearance20Inp || !clearance40Wrap || !clearance40Inp ||
+        !selling20Wrap || !selling20Inp || !selling40Wrap || !selling40Inp) {
+        return;
     }
 
-    function syncSocClearanceUI() {
-        const own = (getOwnershipValue() || "").trim().toLowerCase();
-        const wrap = document.getElementById("socClearanceWrap");
-        const inp = document.getElementById("soc_clearance_charges");
-        if (!wrap || !inp) return;
+    const show20 = isSocLogenix && has20;
+    const show40 = isSocLogenix && has40;
 
-        const isSocLogenix = own === "soc - logenix owned";
+    clearance20Wrap.style.display = show20 ? "block" : "none";
+    clearance20Inp.disabled = !show20;
+    clearance20Inp.required = show20;
 
-        wrap.style.display = isSocLogenix ? "block" : "none";
-        inp.required = isSocLogenix;
-        inp.disabled = !isSocLogenix;
-        
-        if (!isSocLogenix) {
-            // IMPORTANT: clear stale value so it never submits accidentally
-            inp.value = "";
-        }
+    clearance40Wrap.style.display = show40 ? "block" : "none";
+    clearance40Inp.disabled = !show40;
+    clearance40Inp.required = show40;
+
+    selling20Wrap.style.display = show20 ? "block" : "none";
+    selling20Inp.disabled = !show20;
+    selling20Inp.required = show20;
+
+    selling40Wrap.style.display = show40 ? "block" : "none";
+    selling40Inp.disabled = !show40;
+    selling40Inp.required = show40;
+
+    if (!show20) {
+        clearance20Inp.value = "";
+        selling20Inp.value = "";
     }
 
-    document.addEventListener("change", function(e){
-        if (e.target && e.target.name === "container_ownership") {
-            syncSocClearanceUI();
-        }
-    });
+    if (!show40) {
+        clearance40Inp.value = "";
+        selling40Inp.value = "";
+    }
+}
 
-    document.addEventListener("DOMContentLoaded", function(){
+document.addEventListener("change", function(e){
+    if (
+        e.target &&
+        (
+            e.target.name === "container_ownership" ||
+            e.target.id === "size_20ft" ||
+            e.target.id === "size_40ft"
+        )
+    ) {
         syncSocClearanceUI();
-    });
+    }
+});
+
+document.addEventListener("DOMContentLoaded", function(){
+    syncSocClearanceUI();
+});
 
     // ----------------------------
     // Weight dropdown behavior
@@ -2057,15 +2403,35 @@ const size20CountEl = document.getElementById("size_20ft_count");
 const size40CountEl = document.getElementById("size_40ft_count");
 const size2x20CountEl = document.getElementById("size_2x20ft_count");
 
+function enforce20ftLimit() {
+  if (!size20CountEl) return;
+
+  const raw = (size20CountEl.value || "").trim();
+  if (raw === "") return;
+
+  let v = parseInt(raw, 10);
+  if (!Number.isFinite(v) || v < 1) {
+    size20CountEl.value = "";
+    return;
+  }
+
+  if (v > 1) {
+    size20CountEl.value = "1";
+  }
+}
+
 function syncSizeCounts() {
   if (size20Cb && size20CountEl) {
     if (size20Cb.checked) {
       size20CountEl.disabled = false;
       size20CountEl.required = true;
+      size20CountEl.max = "1";
+      enforce20ftLimit();
     } else {
       size20CountEl.disabled = true;
       size20CountEl.required = false;
       size20CountEl.value = "";
+      size20CountEl.removeAttribute("max");
     }
   }
 
@@ -2090,11 +2456,18 @@ function syncSizeCounts() {
       size2x20CountEl.value = "";
     }
   }
+  syncSocClearanceUI();
 }
 
 if (size20Cb) size20Cb.addEventListener("change", syncSizeCounts);
 if (size40Cb) size40Cb.addEventListener("change", syncSizeCounts);
 if (size2x20Cb) size2x20Cb.addEventListener("change", syncSizeCounts);
+
+if (size20CountEl) {
+  size20CountEl.addEventListener("input", enforce20ftLimit);
+  size20CountEl.addEventListener("blur", enforce20ftLimit);
+}
+
 syncSizeCounts();
 
 
@@ -2109,39 +2482,42 @@ syncSizeCounts();
         return radios.find(r => r.checked) || null;
     }
 
-// Validate container sizes on "Next"
+// Validate container sizes on submit
 if (quoteForm) {
     quoteForm.addEventListener("submit", function (e) {
-        const actionEl = document.querySelector('input[name="_action"]');
-        const actionVal = actionEl ? (actionEl.value || "").toLowerCase() : "";
+        const anySelected =
+            (size20Cb && size20Cb.checked) ||
+            (size40Cb && size40Cb.checked) ||
+            (size2x20Cb && size2x20Cb.checked);
 
-        if (actionVal === "next") {
-            const anySelected =
-                (size20Cb && size20Cb.checked) ||
-                (size40Cb && size40Cb.checked) ||
-                (size2x20Cb && size2x20Cb.checked);
-
-            if (!anySelected) {
-                e.preventDefault();
-                alert("Please select at least one container size (20ft / 40ft / 2x20ft) and enter the quantity.");
-                return;
-            }
-
-            function countOk(cb, el, label) {
-                if (!cb || !el) return true;
-                if (!cb.checked) return true;
-                const v = parseInt((el.value || "").trim(), 10);
-                if (!Number.isFinite(v) || v < 1) {
-                    alert(`Please enter a valid quantity (>= 1) for ${label}.`);
-                    return false;
-                }
-                return true;
-            }
-
-            if (!countOk(size20Cb, size20CountEl, "20ft")) { e.preventDefault(); return; }
-            if (!countOk(size40Cb, size40CountEl, "40ft")) { e.preventDefault(); return; }
-            if (!countOk(size2x20Cb, size2x20CountEl, "2x20ft")) { e.preventDefault(); return; }
+        if (!anySelected) {
+            e.preventDefault();
+            alert("Please select at least one container size (20ft / 40ft / 2x20ft) and enter the quantity.");
+            return;
         }
+
+        function countOk(cb, el, label, maxAllowed = null) {
+            if (!cb || !el) return true;
+            if (!cb.checked) return true;
+
+            const v = parseInt((el.value || "").trim(), 10);
+
+            if (!Number.isFinite(v) || v < 1) {
+                alert(`Please enter a valid quantity (>= 1) for ${label}.`);
+                return false;
+            }
+
+            if (maxAllowed !== null && v > maxAllowed) {
+                alert(`${label} quantity can only be ${maxAllowed}.`);
+                return false;
+            }
+
+            return true;
+        }
+
+        if (!countOk(size20Cb, size20CountEl, "20ft", 1)) { e.preventDefault(); return; }
+        if (!countOk(size40Cb, size40CountEl, "40ft")) { e.preventDefault(); return; }
+        if (!countOk(size2x20Cb, size2x20CountEl, "2x20ft")) { e.preventDefault(); return; }
     });
 }
 
@@ -2194,25 +2570,11 @@ if (hasAnySelectableRoute && !selected) {
             confirmClosedInput.value = "yes";
         });
     }
-
 // ---------------------------------
-// ACTION SWITCH: next vs generate
+// ACTION FLAG ONLY
 // ---------------------------------
 const actionHidden = document.getElementById("_action");
-const checkRoutesBtn = document.getElementById("checkRoutesBtn");
 const generateBtn = document.getElementById("generateBtn");
-const hiddenSubmit = document.getElementById("checkRoutesHiddenSubmit");
-
-if (checkRoutesBtn) {
-  checkRoutesBtn.addEventListener("click", () => {
-    if (actionHidden) actionHidden.value = "next"; // backend returns routes on next
-
-    // Submit WITHOUT validation
-    if (quoteForm && hiddenSubmit) {
-      quoteForm.requestSubmit(hiddenSubmit);
-    }
-  });
-}
 
 if (generateBtn) {
   generateBtn.addEventListener("click", () => {
@@ -2265,11 +2627,12 @@ function setInputsEnabled(selector, enabled) {
 }
 
 function setRequiredForFirstVisibleRow(rowSelector, citySelector, required) {
-  // Only first row's city is required (your design)
+  // City should stay optional now.
   const firstRow = document.querySelector(`${rowSelector}[data-index="1"]`);
   if (!firstRow) return;
+
   const city = firstRow.querySelector(citySelector);
-  if (city) city.required = !!required;
+  if (city) city.required = false;
 }
 
 function lockOriginAddress(lock) {
@@ -2385,21 +2748,11 @@ document.addEventListener("change", function (e) {
 document.addEventListener("DOMContentLoaded", function () {
   applyIncotermSmartRules();
 });
-// ----------------------------
-// Quote table: Remove row + recompute Grand Total (real-time)
-// ----------------------------
-function parseFloatSafe(v) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
-}
 
-function fmtMoney(n) {
-  return "$" + n.toFixed(2);
-}
 
-// ============================
-// GRAND TOTALS (20ft / 40ft) — REAL-TIME + ANIM
-// ============================
+// ----------------------------
+// Quote table: Remove row + recompute Grand Totals (real-time)
+// ----------------------------
 function numFromMoneyText(txt) {
   if (txt === null || txt === undefined) return 0;
   const n = Number(String(txt).replace(/[^0-9.\-]/g, ""));
@@ -2415,28 +2768,10 @@ function flashGT(cell) {
   if (!cell) return;
   cell.classList.add("gt-cell");
   cell.classList.remove("flash");
-  // trigger reflow
   void cell.offsetWidth;
   cell.classList.add("flash");
 }
-
-function isOceanRowName(name) {
-  // your backend uses these exact names
-  const n = (name || "").trim();
-  return (
-    n === "Ocean Freight (20ft)_charges" ||
-    n === "Ocean Freight (40ft)_charges"
-  );
-}
-
-function oceanSizeFromRowName(name) {
-  const n = (name || "").trim();
-  if (n.includes("(20ft)")) return "20";
-  if (n.includes("(40ft)")) return "40";
-  return "";
-}
-
-function recomputeTwoGrandTotalsForTable(tableEl) {
+function recomputeGrandTotalsForTable(tableEl) {
   if (!tableEl) return;
 
   const tbody = tableEl.querySelector("tbody");
@@ -2444,8 +2779,17 @@ function recomputeTwoGrandTotalsForTable(tableEl) {
 
   const rows = Array.from(tbody.querySelectorAll("tr"));
 
-  let sum20 = 0; // includes ocean20, excludes ocean40
-  let sum40 = 0; // includes ocean40, excludes ocean20
+  let per20 = 0;
+  let per40 = 0;
+  let shipmentCommon = 0;
+
+  let qty20Single = 0;
+  let qty20Pair = 0;
+  let qty20Units = 0;
+  let qty40 = 0;
+
+  let single20TruckRate = 0;
+  let pair20TruckRate = 0;
 
   rows.forEach(tr => {
     const isGrand = tr.dataset.isgrand === "1";
@@ -2453,53 +2797,84 @@ function recomputeTwoGrandTotalsForTable(tableEl) {
     if (isGrand || !include) return;
 
     const nameCell = tr.querySelector("td");
-    const rowName = (nameCell ? nameCell.textContent : "").trim();
+    const rowName = ((nameCell ? nameCell.textContent : "") || "").trim();
+    const unitCount = Number(tr.dataset.unitcount || 0);
+    const costNum = Number(tr.dataset.costnum || 0);
+    const per20Num = Number(tr.dataset.per20 || 0);
+    const per40Num = Number(tr.dataset.per40 || 0);
+    const shipCommonNum = Number(tr.dataset.shipcommon || 0);
 
-    // Prefer dataset costnum, fallback to cost cell parsing
-    let cost = 0;
-    if (tr.dataset.costnum !== undefined) cost = Number(tr.dataset.costnum) || 0;
-    else {
-      const costCell = tr.querySelectorAll("td")[1];
-      cost = numFromMoneyText(costCell ? costCell.textContent : "");
+    per20 += per20Num;
+    per40 += per40Num;
+    shipmentCommon += shipCommonNum;
+
+    if (rowName === "trucking_charges_20ft" && unitCount > 0) {
+      qty20Single = unitCount;
+      single20TruckRate = per20Num;
     }
 
-    // Exclude ocean40 from 20 total; exclude ocean20 from 40 total
-    if (rowName === "Ocean Freight (40ft)_charges") {
-      sum40 += cost; // ocean40 belongs in 40 total
-      return;        // but not in 20 total
-    }
-    if (rowName === "Ocean Freight (20ft)_charges") {
-      sum20 += cost; // ocean20 belongs in 20 total
-      return;        // but not in 40 total
+    if (rowName === "trucking_charges_2x20ft" && unitCount > 0) {
+      qty20Pair = unitCount;
+      pair20TruckRate = costNum;
     }
 
-    // For all other rows, add to BOTH totals
-    sum20 += cost;
-    sum40 += cost;
+    if ((rowName.includes("_40ft") || rowName.includes("(40ft)")) && unitCount > 0) {
+      qty40 = Math.max(qty40, unitCount);
+    }
   });
 
-  // Update GT20
-  const gt20Row = rows.find(tr => tr.dataset.isgrand === "1" && tr.dataset.grandkind === "20");
-  if (gt20Row) {
-    const cell20 = gt20Row.querySelector("#grandTotal20Cell") || gt20Row.querySelectorAll("td")[1];
-    if (cell20) {
-      cell20.textContent = money(sum20);
-      flashGT(cell20);
-    }
+  qty20Units = qty20Single + (qty20Pair * 2);
+
+  let shipment = 0;
+
+  // 20ft side
+  if (qty20Single > 0 && qty20Pair > 0) {
+    const base20WithoutSingleTruck = per20 - single20TruckRate;
+    shipment += (base20WithoutSingleTruck * qty20Units);
+    shipment += (pair20TruckRate * qty20Pair);
+    shipment += (single20TruckRate * qty20Single);
+  } else if (qty20Single > 0) {
+    shipment += per20 * qty20Single;
+  } else if (qty20Pair > 0) {
+    shipment += per20 * qty20Pair;
   }
 
-  // Update GT40
-  const gt40Row = rows.find(tr => tr.dataset.isgrand === "1" && tr.dataset.grandkind === "40");
-  if (gt40Row) {
-    const cell40 = gt40Row.querySelector("#grandTotal40Cell") || gt40Row.querySelectorAll("td")[1];
-    if (cell40) {
-      cell40.textContent = money(sum40);
-      flashGT(cell40);
-    }
+  // 40ft side
+  if (qty40 > 0) {
+    shipment += per40 * qty40;
   }
+
+  // shipment-only adjustments/deductions
+  shipment += shipmentCommon;
+
+  rows.forEach(tr => {
+    if (tr.dataset.isgrand !== "1") return;
+
+    const mode = tr.dataset.grandmode || "";
+    const key = tr.dataset.grandkey || "";
+    const cell = tr.querySelector(".gt-value-cell") || tr.querySelectorAll("td")[1];
+    if (!cell) return;
+
+    if (mode === "per_unit" && key === "20") {
+      cell.textContent = money(per20);
+      flashGT(cell);
+      return;
+    }
+
+    if (mode === "per_unit" && key === "40") {
+      cell.textContent = money(per40);
+      flashGT(cell);
+      return;
+    }
+
+    if (mode === "shipment" && key === "shipment") {
+      cell.textContent = money(shipment);
+      flashGT(cell);
+    }
+  });
 }
 
-// Remove row handler (real-time)
+// Remove row handler
 document.addEventListener("click", function (e) {
   const btn = e.target.closest(".remove-row");
   if (!btn) return;
@@ -2511,7 +2886,7 @@ document.addEventListener("click", function (e) {
   if (!table) return;
 
   tr.remove();
-  recomputeTwoGrandTotalsForTable(table);
+  recomputeGrandTotalsForTable(table);
 });
 
 // Change dropdown toggle
@@ -2528,7 +2903,7 @@ document.addEventListener("click", function (e) {
   dd.style.display = (dd.style.display === "none" || dd.style.display === "") ? "block" : "none";
 });
 
-// Apply selected shipping line (updates ocean rows + totals)
+// Apply selected shipping line
 document.addEventListener("change", function (e) {
   const sel = e.target.closest(".ocean-select");
   if (!sel) return;
@@ -2554,56 +2929,78 @@ document.addEventListener("change", function (e) {
     return rows.find(r => ((r.querySelector("td")?.textContent) || "").trim() === exactName) || null;
   }
 
-  function setRowCost(exactName, moneyText) {
+  function setRowValidity(exactName, dateText, status) {
+    const row = findRowByName(exactName);
+    if (!row) return;
+
+    const vCell = row.querySelectorAll("td")[2];
+    if (!vCell) return;
+
+    const txt = (dateText || "").trim();
+
+    let badge = "";
+    if (status === "valid") {
+      badge = '<span class="badge-valid ms-2">valid</span>';
+    } else if (status === "expired") {
+      badge = '<span class="badge-expired ms-2">expired</span>';
+    } else if (status === "unknown") {
+      badge = '<span class="badge-unknown ms-2">unknown</span>';
+    }
+
+    vCell.innerHTML = txt + (txt ? " " : "") + badge;
+  }
+   function setOceanRowAmounts(exactName, moneyText, bucket) {
     const row = findRowByName(exactName);
     if (!row) return;
 
     const costCell = row.querySelectorAll("td")[1];
     if (!costCell) return;
 
-    costCell.textContent = moneyText;
-    row.dataset.costnum = String(numFromMoneyText(moneyText));
+    const perUnit = numFromMoneyText(moneyText);
+    const unitCount = Number(row.dataset.unitcount || 0);
+
+    // show only final amount
+    costCell.textContent = money(perUnit * Math.max(unitCount, 1));
+
+    row.dataset.costnum = String(perUnit * unitCount);
+
+    if (bucket === "20") {
+      row.dataset.per20 = String(perUnit);
+      row.dataset.ship20 = String(perUnit * unitCount);
+      row.dataset.per40 = "0";
+      row.dataset.ship40 = "0";
+      row.dataset.shipcommon = row.dataset.shipcommon || "0";
+    }
+
+    if (bucket === "40") {
+      row.dataset.per40 = String(perUnit);
+      row.dataset.ship40 = String(perUnit * unitCount);
+      row.dataset.per20 = "0";
+      row.dataset.ship20 = "0";
+      row.dataset.shipcommon = row.dataset.shipcommon || "0";
+    }
   }
 
- function setRowValidity(exactName, dateText, status) {
-  const row = findRowByName(exactName);
-  if (!row) return;
-
-  const vCell = row.querySelectorAll("td")[2];
-  if (!vCell) return;
-
-  const txt = (dateText || "").trim();
-
-  let badge = "";
-  if (status === "valid") {
-    badge = '<span class="badge-valid ms-2">valid</span>';
-  } else if (status === "expired") {
-    badge = '<span class="badge-expired ms-2">expired</span>';
-  } else if (status === "unknown") {
-    badge = '<span class="badge-unknown ms-2">unknown</span>';
+  // Shipping line row
+  const shippingLineRow = findRowByName("Shipping Line Name");
+  if (shippingLineRow) {
+    const costCell = shippingLineRow.querySelectorAll("td")[1];
+    if (costCell) costCell.textContent = line;
   }
 
-  vCell.innerHTML = txt + (txt ? " " : "") + badge;
-}
+  // Ocean rows
+  setOceanRowAmounts("Ocean Freight (20ft)_charges", amt20, "20");
+  setOceanRowAmounts("Ocean Freight (40ft)_charges", amt40, "40");
 
-  // "Shipping Line Name" row: its cost cell shows the chosen line text
-  setRowCost("Shipping Line Name", line);
-
-  // Ocean Freight rows:
-  setRowCost("Ocean Freight (20ft)_charges", amt20);
-  setRowCost("Ocean Freight (40ft)_charges", amt40);
-
-  // Validity (optional):
   setRowValidity("Ocean Freight (20ft)_charges", validity, validityStatus);
   setRowValidity("Ocean Freight (40ft)_charges", validity, validityStatus);
 
-  // Recompute totals
-  recomputeTwoGrandTotalsForTable(table);
+  recomputeGrandTotalsForTable(table);
 });
 
-// On load: compute totals for each quote tablec
+// On load
 document.addEventListener("DOMContentLoaded", function () {
-  document.querySelectorAll("table.quote-table").forEach(t => recomputeTwoGrandTotalsForTable(t));
+  document.querySelectorAll("table.quote-table").forEach(t => recomputeGrandTotalsForTable(t));
 });
 
 // ----------------------------
@@ -2706,9 +3103,15 @@ document.addEventListener("DOMContentLoaded", function () {
   syncRoutesVisibility();
 });
 
-// ----------------------------
-// CHECK ROUTES (AJAX) - no form submit, no validation
-// ----------------------------
+function firstFilledValue(selector) {
+  const els = Array.from(document.querySelectorAll(selector));
+  for (const el of els) {
+    const v = String(el.value || "").trim();
+    if (v) return v;
+  }
+  return "";
+}
+
 function setRoutesMessage(msg) {
   const el = document.getElementById("routesMsg");
   if (!el) return;
@@ -2726,14 +3129,33 @@ function clearRoutesList() {
   if (list) list.innerHTML = "";
 }
 
+function prettyRouteType(rt) {
+  const v = String(rt || "").trim();
+  const map = {
+    "pol_to_pod": "POL to POD",
+    "pol_to_city": "POL to Final Destination",
+    "pol_to_pod_to_city": "POL to POD to Final Destination",
+    "pol_to_pod_to_final": "POL to POD to Final Destination",
+    "city_to_city": "Pick Up to Final Destination",
+    "city_to_country_to_city": "Pick Up to Final Destination",
+    "city_to_pol": "Pick Up to POL",
+    "city_to_pol_to_pod": "Pick Up to POL to POD",
+    "city_to_pol_to_pod_to_city": "Pick Up to POL to POD to Final Destination",
+    "pickup_to_pol_to_pod_to_final": "Pick Up to POL to POD to Final Destination",
+    "custom": "Custom"
+  };
+  return map[v] || v;
+}
+
 function renderRoutesFromApi(routes, bestId) {
   const list = document.getElementById("routesList");
   if (!list) return;
 
   list.innerHTML = "";
+  list.classList.add("route-results-stack");
 
   if (!routes || routes.length === 0) {
-    setRoutesMessage("No routes found for now.");
+    setRoutesMessage("No routes found for this origin, POL, POD, and destination combination.");
     return;
   }
 
@@ -2744,137 +3166,379 @@ function renderRoutesFromApi(routes, bestId) {
     const title = r.title || "Route";
     const path = r.path || "";
     const status = (r.route_status || "open").toLowerCase();
+    const modeLabel = r.mode_label || "";
+    const routeType = prettyRouteType(r.route_type || "");
     const ttMin = r.transit_min ?? "";
     const ttMax = r.transit_max ?? "";
+    const isBest = Boolean(r.is_best) || String(bestId || "") === id;
 
-    const ttTxt = (ttMin !== "" && ttMax !== "") ? `Transit: ${ttMin}–${ttMax} days` : "Transit: N/A";
+    const ttTxt = (ttMin !== "" && ttMax !== "")
+      ? `${ttMin}–${ttMax} days`
+      : "N/A";
 
-    const wrap = document.createElement("div");
-    wrap.className = "route-choice" + (bestId && String(bestId) === id ? " best" : "");
+    let statusBadge = '<span class="badge-open">open</span>';
+    if (status === "closed") {
+      statusBadge = '<span class="badge-closed">closed</span>';
+    } else if (status === "not sure") {
+      statusBadge = '<span class="badge-not-sure">not sure</span>';
+    } else if (status === "not used") {
+      statusBadge = '<span class="badge-not-used">not used</span>';
+    }
 
-    wrap.innerHTML = `
-      <div class="d-flex justify-content-between align-items-start">
-        <div>
-          <div class="route-name">
-            <label class="form-check-label" for="route_${id}">
-              ${title}
-              ${bestId && String(bestId) === id ? `<span class="badge-best-route ms-2">Best Route</span>` : ``}
-            </label>
-          </div>
-
-          <div class="mt-2 d-flex flex-wrap gap-2">
-                        ${
-              status === "closed"
-                ? `<span class="badge-closed">closed</span>`
-                : status === "not sure"
-                ? `<span class="badge-not-sure">not sure</span>`
-                : status === "not used"
-                ? `<span class="badge-not-used">not used</span>`
-                : `<span class="badge-open">open</span>`
-            }
-            <span class="badge-tt">${ttTxt}</span>
-          </div>
-        </div>
-
-        <div class="d-flex align-items-center gap-2">
+    const div = document.createElement("div");
+    div.className = `route-choice ${isBest ? "best" : ""}`;
+    div.innerHTML = `
+      <div class="route-head">
+        <div class="route-pick">
           <input class="form-check-input mt-0 route-radio"
                  type="radio"
                  name="selected_route_id"
                  id="route_${id}"
                  value="${id}"
-                 data-status="${status}">
+                 data-status="${status}"
+                 ${isBest ? "checked" : ""}>
+        </div>
+
+        <div class="route-body">
+          <div class="route-title-row">
+            <label class="form-check-label route-name" for="route_${id}">
+              ${title}
+            </label>
+            ${isBest ? '<span class="badge-best-route">Best Route</span>' : ""}
+          </div>
+
+          <div class="route-meta">
+            ${statusBadge}
+            ${modeLabel ? `<span class="badge-tt">Mode: ${modeLabel}</span>` : ""}
+            ${routeType ? `<span class="badge-tt">Type: ${routeType}</span>` : ""}
+            <span class="badge-tt">Transit: ${ttTxt}</span>
+          </div>
+
+          <div class="route-desc">${path}</div>
         </div>
       </div>
-
-      <div class="route-desc">${path}</div>
     `;
-
-    list.appendChild(wrap);
+    list.appendChild(div);
   });
 
-  // auto-select best route if provided
-  if (bestId) {
-    const best = document.querySelector(`input.route-radio[value="${CSS.escape(String(bestId))}"]`);
-    if (best) best.checked = true;
-  }
-
-  // ensure radios enabled when rendered
-  const radios = Array.from(document.querySelectorAll(".route-radio"));
-  radios.forEach(r => { r.disabled = false; });
+  syncRoutesVisibility();
 }
 
-function getFieldValue(id) {
-  const el = document.getElementById(id);
-  return el ? String(el.value || "").trim() : "";
-}
+async function checkRoutesAjax() {
+  const pol = String(document.getElementById("port_of_loading")?.value || "").trim();
+  const pod = String(document.getElementById("port_of_destination")?.value || "").trim();
 
-function firstDeliveryPointFilled() {
-  const city = document.querySelector('.pod-row[data-index="1"] .delivery-city');
-  const country = document.querySelector('.pod-row[data-index="1"] .delivery-country');
-  const addr = document.querySelector('input[name="destination_1_address"]');
+  const originCity = firstFilledValue(".origin-city");
+  const originCountry = firstFilledValue(".origin-country");
 
-  const c1 = city ? String(city.value || "").trim() : "";
-  const c2 = country ? String(country.value || "").trim() : "";
-  const c3 = addr ? String(addr.value || "").trim() : "";
-  return !!(c1 || c2 || c3);
-}
+  const destinationCity = firstFilledValue(".delivery-city");
+  const destinationCountry = firstFilledValue(".delivery-country");
 
-document.addEventListener("DOMContentLoaded", () => {
-  const btn = document.getElementById("checkRoutesBtn");
-  if (!btn) return;
+  const transit1 = String(document.querySelector('input[name="transit_border_1"]')?.value || "").trim();
+  const transit2 = String(document.querySelector('input[name="transit_border_2"]')?.value || "").trim();
+  const transit3 = String(document.querySelector('input[name="transit_border_3"]')?.value || "").trim();
+  const transit4 = String(document.querySelector('input[name="transit_border_4"]')?.value || "").trim();
 
-  btn.addEventListener("click", async () => {
-    // minimal checks
-    const pol = getFieldValue("port_of_loading");
-    const pod = getFieldValue("port_of_destination");
+  const fd = new FormData();
+  fd.append("port_of_loading", pol);
+  fd.append("port_of_destination", pod);
+  fd.append("origin_city", originCity);
+  fd.append("origin_country", originCountry);
+  fd.append("destination_city", destinationCity);
+  fd.append("destination_country", destinationCountry);
+  fd.append("transit_border_1", transit1);
+  fd.append("transit_border_2", transit2);
+  fd.append("transit_border_3", transit3);
+  fd.append("transit_border_4", transit4);
 
-    if (!pol || !pod) {
-      setRoutesMessage("Please select Port of Load (POL) and Port of Destination (POD) first.");
-      showAnimBlock(document.getElementById("routesWrap"));
-      return;
-    }
-
-    if (!firstDeliveryPointFilled()) {
-      setRoutesMessage("Please fill Delivery Point 1 details first.");
-      showAnimBlock(document.getElementById("routesWrap"));
-      return;
-    }
-
-    // show routes area
-    showAnimBlock(document.getElementById("routesWrap"));
-    setRoutesMessage("Checking routes...");
+  try {
+    setRoutesMessage("");
     clearRoutesList();
 
-const fd = new FormData();
-fd.append("port_of_loading", pol);
-fd.append("port_of_destination", pod);
+    const res = await fetch("/api/routes", {
+      method: "POST",
+      body: fd
+    });
 
-const originCityEl = document.querySelector('.pol-row[data-index="1"] .origin-city');
-const destinationCityEl = document.querySelector('.pod-row[data-index="1"] .delivery-city');
+    const data = await res.json();
 
-fd.append("origin_city", originCityEl ? String(originCityEl.value || "").trim() : "");
-fd.append("destination_city", destinationCityEl ? String(destinationCityEl.value || "").trim() : "");
+    if (!data || !data.ok) {
+      setRoutesMessage((data && data.route_error_msg) || "No routes found for now.");
+      return;
+    }
 
-fd.append("transit_border_1", document.querySelector('input[name="transit_border_1"]')?.value || "");
-fd.append("transit_border_2", document.querySelector('input[name="transit_border_2"]')?.value || "");
-fd.append("transit_border_3", document.querySelector('input[name="transit_border_3"]')?.value || "");
-fd.append("transit_border_4", document.querySelector('input[name="transit_border_4"]')?.value || "");
+    renderRoutesFromApi(data.routes || [], data.best_route_id || "");
+  } catch (err) {
+    setRoutesMessage("Could not check routes right now.");
+  }
+}
 
-    try {
-      const res = await fetch("/api/routes", { method: "POST", body: fd });
-      const data = await res.json();
+document.addEventListener("click", function (e) {
+  if (e.target && e.target.id === "checkRoutesBtn") {
+    e.preventDefault();
+    checkRoutesAjax();
+  }
+});
 
-      if (!data || data.ok !== true) {
-        renderRoutesFromApi([], null);
-        return;
+function showGenerateOverlay() {
+  const overlay = document.getElementById("generateOverlay");
+  const shell = document.getElementById("pageShell");
+  const btn = document.getElementById("generateBtn");
+  const btnText = btn ? btn.querySelector(".generate-btn-text") : null;
+
+  if (overlay) {
+    overlay.classList.add("show");
+    overlay.setAttribute("aria-hidden", "false");
+  }
+
+  if (shell) {
+    shell.classList.add("loading");
+  }
+
+  if (btn) {
+    btn.disabled = true;
+  }
+
+  if (btnText) {
+    btnText.textContent = "Generating...";
+  }
+}
+
+function hideGenerateOverlay() {
+  const overlay = document.getElementById("generateOverlay");
+  const shell = document.getElementById("pageShell");
+  const btn = document.getElementById("generateBtn");
+  const btnText = btn ? btn.querySelector(".generate-btn-text") : null;
+
+  if (overlay) {
+    overlay.classList.remove("show");
+    overlay.setAttribute("aria-hidden", "true");
+  }
+
+  if (shell) {
+    shell.classList.remove("loading");
+  }
+
+  if (btn) {
+    btn.disabled = false;
+  }
+
+  if (btnText) {
+    btnText.textContent = "Generate";
+  }
+}
+
+function scrollToGeneratedQuoteHeader() {
+  const el = document.getElementById("generatedQuoteHeader");
+  if (!el) return;
+
+  setTimeout(() => {
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, 220);
+}
+
+function scrollToAppTop() {
+  const target =
+    document.getElementById("appTopHeader") ||
+    document.getElementById("appTopTitle") ||
+    document.querySelector(".page-head");
+
+  if (target) {
+    const y = Math.max(
+      0,
+      window.pageYOffset + target.getBoundingClientRect().top - 10
+    );
+
+    window.scrollTo({
+      top: y,
+      behavior: "smooth"
+    });
+
+    // force final landing after smooth scroll
+    setTimeout(() => {
+      window.scrollTo(0, y);
+      document.documentElement.scrollTop = y;
+      document.body.scrollTop = y;
+    }, 500);
+
+    return;
+  }
+
+  window.scrollTo({
+    top: 0,
+    behavior: "smooth"
+  });
+
+  setTimeout(() => {
+    window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  }, 500);
+}
+
+function clearRoutesUiForFreshStart() {
+  const routesMsg = document.getElementById("routesMsg");
+  const routesList = document.getElementById("routesList");
+  const routesWrap = document.getElementById("routesWrap");
+
+  if (routesMsg) {
+    routesMsg.style.display = "none";
+    routesMsg.textContent = "";
+  }
+
+  if (routesList) {
+    routesList.innerHTML = "";
+  }
+
+  if (routesWrap) {
+    routesWrap.style.display = "none";
+    routesWrap.classList.remove("is-open");
+    routesWrap.classList.add("hidden-by-incoterm");
+  }
+
+  document.querySelectorAll(".route-radio").forEach(r => {
+    r.checked = false;
+    r.disabled = true;
+    r.required = false;
+  });
+
+  const confirmClosed = document.getElementById("confirm_closed_route");
+  if (confirmClosed) {
+    confirmClosed.value = "";
+  }
+}
+
+function resetEntireQuoteUi() {
+  const form = document.getElementById("quoteForm");
+  if (!form) return;
+
+  form.reset();
+
+  document.querySelectorAll('input[type="text"], input[type="number"], input[type="hidden"]:not(#_action)').forEach(el => {
+    if (el.name !== "confirm_closed_route") {
+      if (el.type !== "radio" && el.type !== "checkbox") {
+        el.value = "";
       }
-
-      renderRoutesFromApi(data.routes || [], data.best_route_id || null);
-    } catch (err) {
-      setRoutesMessage("Failed to load routes. Please try again.");
     }
   });
-});
+
+  const actionHidden = document.getElementById("_action");
+  if (actionHidden) actionHidden.value = "generate";
+
+  const confirmClosed = document.getElementById("confirm_closed_route");
+  if (confirmClosed) confirmClosed.value = "";
+
+  clearRoutesUiForFreshStart();
+
+  if (typeof syncWeightOther === "function") syncWeightOther();
+  if (typeof syncInsuranceLockAndCalc === "function") syncInsuranceLockAndCalc();
+  if (typeof syncDGFields === "function") syncDGFields();
+  if (typeof syncReloadingUI === "function") syncReloadingUI();
+  if (typeof syncSpecialCostUI === "function") syncSpecialCostUI();
+  if (typeof syncContainerSpecialFields === "function") syncContainerSpecialFields();
+  if (typeof syncSizeCounts === "function") syncSizeCounts();
+  if (typeof syncSocClearanceUI === "function") syncSocClearanceUI();
+  if (typeof syncRoutesVisibility === "function") syncRoutesVisibility();
+
+  scrollToAppTop();
+  setTimeout(() => {
+    scrollToAppTop();
+  }, 220);
+}
+
+function bindResultPageButtons() {
+  const backBtn = document.getElementById("backToEditBtn");
+  const refreshBtn = document.getElementById("refreshPageBtn");
+
+  if (backBtn && !backBtn.dataset.bound) {
+    backBtn.dataset.bound = "yes";
+    backBtn.addEventListener("click", function () {
+      scrollToAppTop();
+
+      if (typeof syncRoutesVisibility === "function") {
+        syncRoutesVisibility();
+      }
+
+      const routesWrap = document.getElementById("routesWrap");
+      if (routesWrap) {
+        showAnimBlock(routesWrap);
+      }
+
+      const checkRoutesBtn = document.getElementById("checkRoutesBtn");
+      if (checkRoutesBtn) {
+        checkRoutesBtn.disabled = false;
+      }
+
+      const firstEditable =
+        document.querySelector('#quoteForm input:not([type="hidden"]):not([disabled]), #quoteForm select:not([disabled]), #quoteForm textarea:not([disabled])');
+
+      if (firstEditable) {
+        setTimeout(() => {
+          try {
+            firstEditable.focus({ preventScroll: true });
+          } catch (e) {
+            firstEditable.focus();
+          }
+        }, 520);
+      }
+    });
+  }
+
+  if (refreshBtn && !refreshBtn.dataset.bound) {
+    refreshBtn.dataset.bound = "yes";
+    refreshBtn.addEventListener("click", function () {
+      resetEntireQuoteUi();
+
+      setTimeout(() => {
+        scrollToAppTop();
+      }, 50);
+    });
+  }
+}
+
+bindResultPageButtons();
+
+if (document.getElementById("generatedQuoteHeader")) {
+  scrollToGeneratedQuoteHeader();
+}
+
+// ----------------------------
+// GENERATE QUOTE (AJAX) - no full page refresh
+// ----------------------------
+if (quoteForm) {
+  quoteForm.addEventListener("submit", async function (e) {
+    const actionEl = document.querySelector('input[name="_action"]');
+    const actionVal = actionEl ? String(actionEl.value || "").toLowerCase() : "generate";
+
+    if (actionVal !== "generate") return;
+    if (e.defaultPrevented) return;
+
+    e.preventDefault();
+    showGenerateOverlay();
+
+    try {
+      const fd = new FormData(quoteForm);
+
+      const res = await fetch("/submit", {
+        method: "POST",
+        body: fd,
+        headers: {
+          "X-Requested-With": "XMLHttpRequest"
+        }
+      });
+
+      const html = await res.text();
+
+      document.open();
+      document.write(html);
+      document.close();
+
+    } catch (err) {
+      hideGenerateOverlay();
+      alert("Failed to generate quote. Please try again.");
+    }
+  });
+}
 
 </script>
 
