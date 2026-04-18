@@ -1818,10 +1818,16 @@
     <span class="text-muted">—</span>
   {% else %}
     {% if row.can_remove %}
-      <button type="button" class="btn btn-sm btn-danger me-2 remove-row">Remove</button>
-    {% else %}
-      <span class="text-muted">—</span>
-    {% endif %}
+  <button
+    type="button"
+    class="btn btn-sm btn-danger me-2 remove-row"
+    onclick="handleRemoveRowClick(this); return false;"
+  >
+    Remove
+  </button>
+{% else %}
+  <span class="text-muted">—</span>
+{% endif %}
 
     {% if row.change_type == "ocean_freight_line" %}
       <button type="button" class="btn btn-sm btn-logenix change-ocean">Change</button>
@@ -2875,18 +2881,56 @@ function recomputeGrandTotalsForTable(tableEl) {
 }
 
 // Remove row handler
+function handleRemoveRowClick(btn) {
+  if (!btn) return false;
+
+  const tr = btn.closest("tr");
+  if (!tr) return false;
+
+  const table = btn.closest("table.quote-table");
+  if (!table) return false;
+
+  tr.remove();
+  recomputeGrandTotalsForTable(table);
+  return false;
+}
+
 document.addEventListener("click", function (e) {
   const btn = e.target.closest(".remove-row");
   if (!btn) return;
 
-  const tr = btn.closest("tr");
-  if (!tr) return;
+  e.preventDefault();
+  e.stopPropagation();
 
-  const table = btn.closest("table.quote-table");
-  if (!table) return;
+  handleRemoveRowClick(btn);
+});
 
-  tr.remove();
-  recomputeGrandTotalsForTable(table);
+document.addEventListener("click", function (e) {
+  const btn = e.target.closest(".remove-row");
+  if (!btn) return;
+
+  e.preventDefault();
+  e.stopPropagation();
+
+  handleRemoveRowClick(btn);
+});
+
+// Extra direct binding for result tables after AJAX-rendered page loads
+function bindRemoveRowButtons() {
+  document.querySelectorAll(".remove-row").forEach((btn) => {
+    if (btn.dataset.boundRemove === "yes") return;
+
+    btn.dataset.boundRemove = "yes";
+    btn.addEventListener("click", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      handleRemoveRowClick(btn);
+    });
+  });
+}
+
+document.addEventListener("DOMContentLoaded", function () {
+  bindRemoveRowButtons();
 });
 
 // Change dropdown toggle
