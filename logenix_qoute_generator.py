@@ -1177,6 +1177,223 @@ def load_prices_df():
         print("Error loading prices from OneDrive:", e)
         return None
 
+# -------------------------
+# PRICING SHEET SECTION HELPERS
+# -------------------------
+SECTION_MARKERS = [
+    "Basic_Details_Section",
+    "Ocean_Freight_Section",
+    "Railway_Shipment_Section",
+    "Land_Shipment_Section",
+    "Airway_Section",
+]
+
+SECTION_END_MARKERS = [
+    "Airway_Section_Ends",
+]
+
+SHIPMENT_MODE_TO_SECTIONS = {
+    "Ocean Freight Shipment": ["Ocean_Freight_Section"],
+    "Railway Shipment": ["Railway_Shipment_Section"],
+    "Land Shipment": ["Land_Shipment_Section"],
+    "Airway": ["Airway_Section"],
+    "Ocean Freight + Land Shipment": ["Ocean_Freight_Section", "Land_Shipment_Section"],
+}
+
+
+def is_blank_or_unnamed_column(col_name: Any) -> bool:
+    if col_name is None:
+        return True
+    s = str(col_name).strip()
+    if not s:
+        return True
+    return canon(s).startswith("unnamed:")
+
+
+def is_section_marker_column(col_name: Any) -> bool:
+    c = canon(col_name)
+    return c in {canon(x) for x in SECTION_MARKERS} or c in {canon(x) for x in SECTION_END_MARKERS}
+
+
+def find_section_marker_positions(df: pd.DataFrame) -> Dict[str, int]:
+    """
+    Finds section marker columns by canonical header name.
+    Handles accidental spaces in headers, for example:
+      Railway_Shipment_Section
+      Railway_Shipment_Section 
+       Railway_charges_20ft
+    """
+    positions: Dict[str, int] = {}
+    cols = list(df.columns)
+
+    for marker in SECTION_MARKERS + SECTION_END_MARKERS:
+        marker_c = canon(marker)
+        for idx, col in enumerate(cols):
+            if canon(col) == marker_c:
+                positions[marker] = idx
+                break
+
+    return positions
+
+
+def get_section_columns(df: pd.DataFrame, section_name: str) -> List[str]:
+    """
+    Returns columns for a specific mode section.
+
+    Expected current structure:
+      Basic_Details_Section starts at A and ends before Ocean_Freight_Section.
+      Ocean_Freight_Section ends before Railway_Shipment_Section.
+      Railway_Shipment_Section ends before Land_Shipment_Section.
+      Land_Shipment_Section ends before Airway_Section.
+      Airway_Section ends before Airway_Section_Ends, if that marker exists.
+      routes remains at the end.
+    """
+    cols = list(df.columns)
+    positions = find_section_marker_positions(df)
+
+    if section_name not in positions:
+        return []
+
+    start_idx = positions[section_name]
+    possible_ends: List[int] = []
+
+    # End before the next mode section marker.
+    for marker in SECTION_MARKERS:
+        idx = positions.get(marker)
+        if idx is not None and idx > start_idx:
+            possible_ends.append(idx)
+
+    # Airway has an explicit ending marker.
+    if canon(section_name) == canon("Airway_Section"):
+        airway_end_idx = positions.get("Airway_Section_Ends")
+        if airway_end_idx is not None and airway_end_idx > start_idx:
+            possible_ends.append(airway_end_idx)
+
+    # Always stop before routes if no later section/end marker is found.
+    for idx, c in enumerate(cols):
+        if canon(c) == canon("routes") and idx > start_idx:
+            possible_ends.append(idx)
+            break
+
+    end_idx = min(possible_ends) if possible_ends else len(cols)
+
+    return [
+        c for c in cols[start_idx:end_idx]
+        if not is_blank_or_unnamed_column(c)
+    ]
+
+
+def get_basic_section_columns(df: pd.DataFrame) -> List[str]:
+    """
+    Basic section starts at Basic_Details_Section and ends before Ocean_Freight_Section.
+    This section is used for matching POL/POD, address, container, commodity, weight,
+    and the one shared validity column.
+    """
+    cols = list(df.columns)
+    positions = find_section_marker_positions(df)
+
+    start_idx = positions.get("Basic_Details_Section", 0)
+    end_idx = positions.get("Ocean_Freight_Section", len(cols))
+
+    if end_idx <= start_idx:
+        return cols[:end_idx] if end_idx > 0 else cols
+
+    return [
+        c for c in cols[start_idx:end_idx]
+        if not is_blank_or_unnamed_column(c)
+    ]
+
+
+def get_route_columns(df: pd.DataFrame) -> List[str]:
+    """
+    routes column remains at the end of the sheet like before.
+    Always keep it available for selected-route matching.
+    """
+    return [c for c in df.columns if canon(c) == canon("routes")]
+
+
+def get_validity_column_from_basic_section(df: pd.DataFrame) -> Optional[str]:
+    """
+    New rule:
+    There is only one validity column in Basic_Details_Section.
+    That validity applies to all selected mode sections and all charge rows.
+    """
+    basic_cols = get_basic_section_columns(df)
+
+    for c in basic_cols:
+        if canon(c) == canon("validity"):
+            return c
+
+    for c in basic_cols:
+        if "validity" in canon(c):
+            return c
+
+    return None
+
+
+def select_pricing_columns_for_shipment_mode(
+    df: pd.DataFrame,
+    shipment_mode: str
+) -> Tuple[pd.DataFrame, Optional[str], List[str]]:
+    """
+    Keeps only:
+      - Basic_Details_Section columns
+      - selected shipment mode section columns
+      - routes column
+
+    Examples:
+      Ocean Freight Shipment        => Basic + Ocean + routes
+      Railway Shipment              => Basic + Railway + routes
+      Land Shipment                 => Basic + Land + routes
+      Airway                        => Basic + Airway + routes
+      Ocean Freight + Land Shipment => Basic + Ocean + Land + routes
+    """
+    mode = (shipment_mode or "").strip()
+
+    if not mode:
+        return df.copy(), "Please select the shipment mode.", []
+
+    selected_sections = SHIPMENT_MODE_TO_SECTIONS.get(mode)
+    if not selected_sections:
+        return df.copy(), f"Unsupported shipment mode selected: {mode}", []
+
+    basic_cols = get_basic_section_columns(df)
+
+    if not basic_cols:
+        return df.copy(), "Basic_Details_Section columns were not found in prices_updated.xlsx.", []
+
+    keep_cols: List[str] = []
+
+    for c in basic_cols:
+        if c not in keep_cols:
+            keep_cols.append(c)
+
+    missing_sections: List[str] = []
+
+    for sec in selected_sections:
+        sec_cols = get_section_columns(df, sec)
+        if not sec_cols:
+            missing_sections.append(sec)
+            continue
+
+        for c in sec_cols:
+            if c not in keep_cols:
+                keep_cols.append(c)
+
+    for c in get_route_columns(df):
+        if c not in keep_cols:
+            keep_cols.append(c)
+
+    if missing_sections:
+        return df.copy(), (
+            "Selected shipment mode section was not found in prices_updated.xlsx: "
+            + ", ".join(missing_sections)
+        ), []
+
+    if not keep_cols:
+        return df.copy(), "No pricing columns found for selected shipment mode.", []
+
+    return df.loc[:, keep_cols].copy(), None, keep_cols
 
 def save_to_excel(record: Dict[str, Any]) -> Tuple[bool, str]:
     try:
@@ -1209,6 +1426,139 @@ def save_to_excel(record: Dict[str, Any]) -> Tuple[bool, str]:
     except Exception as e:
         return False, f"Could not save query to queries.xlsx: {str(e)}"
 
+def add_generated_quote_prices_to_record(
+    record: Dict[str, Any],
+    rates: Optional[List[Dict[str, Any]]]
+) -> Dict[str, Any]:
+    """
+    Adds all generated quote line items and grand totals into the same record
+    that is saved to queries.xlsx.
+
+    This saves:
+      - A JSON copy of all generated quote rows
+      - Separate Excel columns for each generated row
+      - Separate Excel columns for grand totals
+    """
+    rates = rates or []
+
+    quote_export: List[Dict[str, Any]] = []
+
+    # Default summary columns, so queries.xlsx always has stable columns
+    record["generated_quote_count"] = len(rates)
+    record["generated_grand_total_per_20ft_container"] = ""
+    record["generated_grand_total_per_40ft_container"] = ""
+    record["generated_grand_total_shipment_cost"] = ""
+    record["generated_grand_total_per_20ft_container_num"] = ""
+    record["generated_grand_total_per_40ft_container_num"] = ""
+    record["generated_grand_total_shipment_cost_num"] = ""
+
+    line_no = 1
+
+    for quote_idx, quote in enumerate(rates, start=1):
+        title = str(quote.get("title", "") or "").strip()
+        match_note = str(quote.get("match_note", "") or "").strip()
+        table_rows = quote.get("table_rows") or []
+
+        record[f"generated_quote_{quote_idx}_title"] = title
+        record[f"generated_quote_{quote_idx}_match_note"] = match_note
+
+        for row in table_rows:
+            if not isinstance(row, dict):
+                continue
+
+            name = str(row.get("name", "") or "").strip()
+            cost = str(row.get("cost", "") or "").strip()
+            validity = str(row.get("validity", "") or "").strip()
+            validity_status = str(row.get("validity_status", "") or "").strip()
+
+            cost_num = row.get("cost_num", "")
+            per20_num = row.get("per20_num", "")
+            per40_num = row.get("per40_num", "")
+            ship20_num = row.get("ship20_num", "")
+            ship40_num = row.get("ship40_num", "")
+            ship_common_num = row.get("ship_common_num", "")
+            unit_count = row.get("unit_count", "")
+
+            include_in_total = bool(row.get("include_in_total", False))
+            is_grand_total = bool(row.get("is_grand_total", False))
+            is_red_text = bool(row.get("is_red_text", False))
+            grand_mode = str(row.get("grand_mode", "") or "").strip()
+            grand_key = str(row.get("grand_key", "") or "").strip()
+
+            # Store all generated rows in JSON too
+            quote_export.append({
+                "quote_index": quote_idx,
+                "quote_title": title,
+                "line_no": line_no,
+                "name": name,
+                "cost": cost,
+                "validity": validity,
+                "validity_status": validity_status,
+                "include_in_total": include_in_total,
+                "is_grand_total": is_grand_total,
+                "is_display_only_red_row": is_red_text,
+                "grand_mode": grand_mode,
+                "grand_key": grand_key,
+                "cost_num": cost_num,
+                "per20_num": per20_num,
+                "per40_num": per40_num,
+                "ship20_num": ship20_num,
+                "ship40_num": ship40_num,
+                "ship_common_num": ship_common_num,
+                "unit_count": unit_count,
+            })
+
+            # Store each generated row as normal Excel columns too
+            prefix = f"generated_price_{line_no:02d}"
+            record[f"{prefix}_quote_index"] = quote_idx
+            record[f"{prefix}_name"] = name
+            record[f"{prefix}_cost"] = cost
+            record[f"{prefix}_validity"] = validity
+            record[f"{prefix}_validity_status"] = validity_status
+            record[f"{prefix}_include_in_total"] = "Yes" if include_in_total else "No"
+            record[f"{prefix}_is_grand_total"] = "Yes" if is_grand_total else "No"
+            record[f"{prefix}_is_display_only"] = "Yes" if is_red_text else "No"
+            record[f"{prefix}_cost_num"] = cost_num
+            record[f"{prefix}_per20_num"] = per20_num
+            record[f"{prefix}_per40_num"] = per40_num
+            record[f"{prefix}_ship20_num"] = ship20_num
+            record[f"{prefix}_ship40_num"] = ship40_num
+            record[f"{prefix}_ship_common_num"] = ship_common_num
+            record[f"{prefix}_unit_count"] = unit_count
+
+            # Easy-to-read grand total columns
+            name_c = canon(name)
+
+            if is_grand_total:
+                parsed_total = parse_price_to_float(cost)
+
+                if name_c == canon("Grand total per 20ft container"):
+                    record["generated_grand_total_per_20ft_container"] = cost
+                    record["generated_grand_total_per_20ft_container_num"] = (
+                        float(parsed_total) if parsed_total is not None else ""
+                    )
+
+                elif name_c == canon("Grand total per 40ft container"):
+                    record["generated_grand_total_per_40ft_container"] = cost
+                    record["generated_grand_total_per_40ft_container_num"] = (
+                        float(parsed_total) if parsed_total is not None else ""
+                    )
+
+                elif name_c == canon("Grand total shipment cost"):
+                    record["generated_grand_total_shipment_cost"] = cost
+                    record["generated_grand_total_shipment_cost_num"] = (
+                        float(parsed_total) if parsed_total is not None else ""
+                    )
+
+            line_no += 1
+
+    record["generated_quote_prices_json"] = json.dumps(
+        quote_export,
+        ensure_ascii=False,
+        default=str
+    )
+
+    return record
 
 def get_commodities():
     commodities = list(BASE_COMMODITIES)
@@ -1282,6 +1632,19 @@ def is_charges_column(col_name: str) -> bool:
     c = canon(col_name)
 
     if not c:
+        return False
+
+    if is_blank_or_unnamed_column(col_name):
+        return False
+
+    if is_section_marker_column(col_name):
+        return False
+
+    if c in {
+        canon("routes"),
+        canon("validity"),
+        canon("Airway_Section_Ends"),
+    }:
         return False
 
     # UI-only / display-only items: never include in quote totals
@@ -1498,25 +1861,13 @@ def compute_trucking_plan_and_totals(
     pair_20_count: int,
     total_40_units: int,
     per20_mode: str,
-    today: date | None = None
+    today: date | None = None,
+    global_validity_col: Optional[str] = None
 ):
     """
-    Business rule:
-    - 40ft trucking:
-        shipment = trucking_charges_40ft * total_40_units
-        per40 = trucking_charges_40ft
-
-    - 20ft single trucking:
-        shipment = trucking_charges_20ft * single_20_count
-        per20 = trucking_charges_20ft only when per20_mode == 'single20'
-
-    - 2x20ft trucking:
-        shipment = trucking_charges_2x20ft * pair_20_count
-        per20 = trucking_charges_2x20ft only when per20_mode == 'pair20'
-
-    IMPORTANT:
-    Search across all rows in matched_df, not just the first row, because trucking
-    values may be present on sibling rows of the same grouped quote.
+    Trucking is still handled the same way as before, but now:
+    - trucking columns are only available when the selected pricing section contains them
+    - validity comes from the one Basic_Details_Section validity column
     """
     if today is None:
         today = date.today()
@@ -1531,7 +1882,26 @@ def compute_trucking_plan_and_totals(
             "notes": ["Trucking row not found in selected quote row/group."],
         }
 
-    cols = list(matched_df.columns)
+    def _validity_for_row(rr: pd.Series) -> Tuple[str, str]:
+        validity_text = ""
+        validity_status = "na"
+
+        if global_validity_col and global_validity_col in matched_df.columns:
+            validity_status, validity_fmt, _ = validity_status_and_text(rr.get(global_validity_col))
+            validity_text = validity_fmt or ""
+            return validity_text, validity_status
+
+        fallback_validity_col = (
+            find_col_case_insensitive(matched_df, "validity")
+            or find_col_case_insensitive(matched_df, "Rates Validity")
+            or find_col_case_insensitive(matched_df, "Validity")
+        )
+
+        if fallback_validity_col:
+            validity_status, validity_fmt, _ = validity_status_and_text(rr.get(fallback_validity_col))
+            validity_text = validity_fmt or ""
+
+        return validity_text, validity_status
 
     def _get_rate_and_validity(base_col_name: str):
         actual = find_col_case_insensitive(matched_df, base_col_name)
@@ -1545,16 +1915,7 @@ def compute_trucking_plan_and_totals(
             if rate is None or float(rate) <= 0:
                 continue
 
-            validity_text = ""
-            validity_status = "na"
-            try:
-                idx = cols.index(actual)
-                if idx + 1 < len(cols) and "validity" in canon(cols[idx + 1]):
-                    validity_status, validity_fmt, _ = validity_status_and_text(rr.get(cols[idx + 1]))
-                    validity_text = validity_fmt or ""
-            except Exception:
-                pass
-
+            validity_text, validity_status = _validity_for_row(rr)
             return float(rate), validity_text, validity_status
 
         return None, "", "na"
@@ -1582,11 +1943,6 @@ def compute_trucking_plan_and_totals(
                 "is_grand_total": False,
                 "change_type": "",
                 "options": [],
-                                # IMPORTANT BUSINESS RULE:
-                # When only 2x20ft is selected, displayed "Grand total per 20ft container"
-                # must EXCLUDE trucking_charges_2x20ft.
-                # Pair trucking is added only in shipment total:
-                #   trucking_charges_2x20ft * pair_20_count
                 "per20_num": 0.0,
                 "per40_num": 0.0,
                 "ship20_num": float(shipment_total),
@@ -1682,16 +2038,17 @@ def get_strict_quotes(
     pod_port: str,
     incoterm_origin: str,
     incoterm_destination: str,
+    shipment_mode: str = "",
 
-    origin_address: str,
-    origin_city: str,
-    origin_country: str,
+    origin_address: str = "",
+    origin_city: str = "",
+    origin_country: str = "",
 
-    dest_address: str,
-    dest_city: str,
-    dest_country: str,
+    dest_address: str = "",
+    dest_city: str = "",
+    dest_country: str = "",
 
-    container_size_label: str,
+    container_size_label: str = "",
 
     selected_route_type: str = "",
     selected_route_mode_label: str = "",
@@ -1723,6 +2080,25 @@ def get_strict_quotes(
     df = load_prices_df()
     if df is None or df.empty:
         return [], None, "Could not load prices_updated.xlsx properly. Please confirm the file exists and headers are correct."
+
+    # -------------------------
+    # NEW: Keep only Basic + selected shipment mode section + routes
+    # -------------------------
+    global_validity_col = get_validity_column_from_basic_section(df)
+
+    df, section_error_msg, selected_pricing_columns = select_pricing_columns_for_shipment_mode(
+        df=df,
+        shipment_mode=shipment_mode
+    )
+
+    if section_error_msg:
+        return [], None, section_error_msg
+
+    if df is None or df.empty:
+        return [], None, "No pricing data found for the selected shipment mode."
+
+    if global_validity_col and global_validity_col not in df.columns:
+        global_validity_col = find_col_case_insensitive(df, "validity")
 
     def col_exists(name: str) -> bool:
         return name in df.columns
@@ -1899,24 +2275,10 @@ def get_strict_quotes(
     of20_col = find_col_case_insensitive(ocean_src_df, "Ocean Freight (20ft)_charges")
     of40_col = find_col_case_insensitive(ocean_src_df, "Ocean Freight (40ft)_charges")
 
-    # Ocean validity is usually the column right after Ocean Freight (40ft)_charges
-    validity_col = None
-    if of40_col:
-        cols_list = list(ocean_src_df.columns)
-        try:
-            idx40 = cols_list.index(of40_col)
-            if idx40 + 1 < len(cols_list) and "validity" in canon(cols_list[idx40 + 1]):
-                validity_col = cols_list[idx40 + 1]
-        except Exception:
-            validity_col = None
-
-    # Fallback only if adjacency not found
-    if not validity_col:
-        validity_col = (
-            find_col_case_insensitive(ocean_src_df, "Rates Validity")
-            or find_col_case_insensitive(ocean_src_df, "Validity")
-            or find_col_case_insensitive(ocean_src_df, "validity")
-        )
+    # New rule: use the single Basic_Details_Section validity column for all charges/options.
+    validity_col = global_validity_col
+    if validity_col and validity_col not in ocean_src_df.columns:
+        validity_col = find_col_case_insensitive(ocean_src_df, "validity")
 
     ocean_freight_options: List[Dict[str, Any]] = []
 
@@ -2180,6 +2542,7 @@ def get_strict_quotes(
         pair_20_count=pair_20_count,
         total_40_units=total_40_units,
         per20_mode=per20_mode,
+        global_validity_col=global_validity_col,
     )
 
     own_c = canon(container_ownership)
@@ -2213,6 +2576,28 @@ def get_strict_quotes(
 
     def _row_exists(table_rows: List[Dict[str, Any]], name: str) -> bool:
         return any(canon(r.get("name", "")) == canon(name) for r in table_rows)
+
+    def _get_global_validity_for_row(row: pd.Series) -> Tuple[str, str]:
+        """
+        New rule:
+        Use only the Basic_Details_Section validity column for every quote row.
+        """
+        if global_validity_col and global_validity_col in row.index:
+            validity_status, validity_fmt, _ = validity_status_and_text(row.get(global_validity_col))
+            return validity_fmt or "", validity_status
+
+        fallback_col = None
+        for c in row.index:
+            if canon(c) == canon("validity") or "validity" in canon(c):
+                fallback_col = c
+                break
+
+        if fallback_col:
+            validity_status, validity_fmt, _ = validity_status_and_text(row.get(fallback_col))
+            return validity_fmt or "", validity_status
+
+        return "", "na"
+
     
     def _append_info_row(
         table_rows: List[Dict[str, Any]],
@@ -2253,12 +2638,7 @@ def get_strict_quotes(
         if num is None:
             return
 
-        validity_text = ""
-        validity_status = "na"
-        idx = display_cols.index(actual)
-        if idx + 1 < len(display_cols) and "validity" in canon(display_cols[idx + 1]):
-            validity_status, validity_fmt, _ = validity_status_and_text(row.get(display_cols[idx + 1]))
-            validity_text = validity_fmt or ""
+        validity_text, validity_status = _get_global_validity_for_row(row)
 
         rr = _make_base_row_dict()
         rr.update({
@@ -2406,12 +2786,7 @@ def get_strict_quotes(
         if num is None:
             return
 
-        validity_text = ""
-        validity_status = "na"
-        idx = display_cols.index(actual)
-        if idx + 1 < len(display_cols) and "validity" in canon(display_cols[idx + 1]):
-            validity_status, validity_fmt, _ = validity_status_and_text(row.get(display_cols[idx + 1]))
-            validity_text = validity_fmt or ""
+        validity_text, validity_status = _get_global_validity_for_row(row)
 
         rr = _make_base_row_dict()
         rr.update({
@@ -2451,12 +2826,7 @@ def get_strict_quotes(
         if bucket == "40" and total_40_units <= 0:
             return
 
-        validity_text = ""
-        validity_status = "na"
-        idx = display_cols.index(actual)
-        if idx + 1 < len(display_cols) and "validity" in canon(display_cols[idx + 1]):
-            validity_status, validity_fmt, _ = validity_status_and_text(row.get(display_cols[idx + 1]))
-            validity_text = validity_fmt or ""
+        validity_text, validity_status = _get_global_validity_for_row(row)
 
         rr = _make_base_row_dict()
         rr["name"] = label or str(actual)
@@ -2550,6 +2920,19 @@ def get_strict_quotes(
                 i += 1
                 continue
 
+            # Do not show blank / Unnamed separator columns.
+            if is_blank_or_unnamed_column(col):
+                i += 1
+                continue
+
+            # Do not show section marker columns like Basic_Details_Section,
+            # Ocean_Freight_Section, Airway_Section_Ends, etc.
+            if is_section_marker_column(col):
+                i += 1
+                continue
+
+            # Validity is now one Basic_Details_Section column applied to all rows,
+            # so do not show it as a normal info row.
             if "validity" in col_c and not is_charges_column(col):
                 i += 1
                 continue
@@ -2622,9 +3005,7 @@ def get_strict_quotes(
                                 "ship20_num": float(num20) * float(shipment_units),
                                 "unit_count": shipment_units,
                             })
-                            if validity_col_local:
-                                rr["validity_status"], validity_fmt, _ = validity_status_and_text(row.get(validity_col_local))
-                                rr["validity"] = validity_fmt or ""
+                            rr["validity"], rr["validity_status"] = _get_global_validity_for_row(row)
                             table_rows.append(rr)
 
                     if total_40_units > 0:
@@ -2640,9 +3021,7 @@ def get_strict_quotes(
                                 "ship40_num": float(num40) * float(total_40_units),
                                 "unit_count": total_40_units,
                             })
-                            if validity_col_local:
-                                rr["validity_status"], validity_fmt, _ = validity_status_and_text(row.get(validity_col_local))
-                                rr["validity"] = validity_fmt or ""
+                            rr["validity"], rr["validity_status"] = _get_global_validity_for_row(row)
                             table_rows.append(rr)
 
                     i += 3 if validity_col_local else 2
@@ -2931,6 +3310,7 @@ def build_display_items_for_submitted(data: Dict[str, Any]) -> List[Dict[str, st
         items.append({"label": label, "value": s})
 
     add("Quote ID", "quote_id")
+    add("Shipment Mode", "shipment_mode")
     add("Company", "company_name")
     add("Salesperson Name", "salesperson_name")
     add("Container Ownership", "container_ownership")
@@ -3028,6 +3408,11 @@ def build_display_items_for_submitted(data: Dict[str, Any]) -> List[Dict[str, st
         add(f"Special Cost {i}", f"special_cost_{i}")
 
     add("Special Costs Total", "special_cost_total")
+
+    add("Generated Grand Total per 20ft Container", "generated_grand_total_per_20ft_container")
+    add("Generated Grand Total per 40ft Container", "generated_grand_total_per_40ft_container")
+    add("Generated Grand Total Shipment Cost", "generated_grand_total_shipment_cost")
+
     add("Shipment Type", "shipment_type")
     add("Timestamp", "timestamp")
 
@@ -3172,6 +3557,7 @@ def submit():
     # -------------------------
     # Basic fields
     # -------------------------
+    shipment_mode = request.form.get("shipment_mode", "").strip()
     company_name = request.form.get("company_name", "").strip()
     salesperson_name = request.form.get("salesperson_name", "").strip()
     container_ownership = request.form.get("container_ownership", "").strip()
@@ -3454,6 +3840,7 @@ def submit():
     # build form_data for repopulation
     # -------------------------
     form_data: Dict[str, Any] = {
+        "shipment_mode": shipment_mode,
         "company_name": company_name,
         "salesperson_name": salesperson_name,
         "container_ownership": container_ownership,
@@ -3658,6 +4045,7 @@ def submit():
 
     data: Dict[str, Any] = {
         "quote_id": f"QUOTE-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
+        "shipment_mode": shipment_mode,
         "company_name": company_name,
         "salesperson_name": salesperson_name,
         "container_ownership": container_ownership,
@@ -3800,6 +4188,7 @@ def submit():
 
         incoterm_origin=incoterm_origin,
         incoterm_destination=incoterm_destination,
+        shipment_mode=shipment_mode,
         selected_route_type=selected_route_type,
         selected_route_mode_label=selected_route_mode_label,
 
@@ -3836,6 +4225,10 @@ def submit():
 
         limit=1
     )
+
+    # Add all generated quote prices + grand totals into the same row
+    # before saving to queries.xlsx.
+    data = add_generated_quote_prices_to_record(data, rates)
 
     save_ok, save_msg = save_to_excel(data)
     if not save_ok:

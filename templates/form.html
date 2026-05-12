@@ -62,7 +62,41 @@
         }
 
         .card{ border:none; border-radius: var(--radius); }
+/* Shipment Mode Selector */
+.shipment-mode-box{
+    border: 1px solid rgba(219,227,239,.95);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    background: linear-gradient(180deg, rgba(255,255,255,.96), rgba(247,250,255,.96));
+    box-shadow: var(--shadow-soft);
+}
 
+.shipment-mode-title{
+    font-weight: 900;
+    font-size: 15px;
+    color: #0f172a;
+    margin-bottom: 12px;
+}
+
+.shipment-mode-options{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.shipment-mode-options .btn{
+    border-radius: 999px;
+    padding: 9px 15px;
+    font-size: 13px;
+    font-weight: 900;
+}
+
+.shipment-mode-options .btn-check:checked + .btn{
+    background: linear-gradient(135deg, rgba(30,94,255,1), rgba(47,140,255,.95));
+    color: #fff;
+    border-color: transparent;
+    box-shadow: 0 10px 22px rgba(30,94,255,.20);
+}
 /* Header */
 .page-head{
     display:flex;
@@ -707,30 +741,9 @@
     color: #64748b;
     margin-bottom: 0;
 }
-.result-bottom-actions{
-    display: flex;
-    justify-content: flex-end;
-    gap: 12px;
-    flex-wrap: wrap;
-    margin-top: 18px;
-    margin-bottom: 36px;
-    padding-bottom: 8px;
-}
-
-.btn-page-utility{
-    min-width: 110px;
-}
-
-@media (max-width: 576px){
-    .result-bottom-actions{
-        justify-content: stretch;
-    }
-
-    .result-bottom-actions .btn{
-        flex: 1 1 auto;
-    }
-}
-
+/* Back / Refresh result buttons removed.
+   Form remains editable after quote generation, so the user can change details
+   and click Generate again to submit a new quotation. */
     </style>
 </head>
 
@@ -829,6 +842,52 @@
 <!-- Hidden submit used by "Check Routes" to bypass validation -->
 <button type="submit" id="checkRoutesHiddenSubmit" formnovalidate style="display:none;"></button>
     <div class="row g-3 align-items-start">
+
+        <!-- Shipment Mode Selection -->
+        <div class="col-12 section-anim">
+            <div class="shipment-mode-box">
+                <div class="shipment-mode-title">Please select the shipment mode:</div>
+
+                {% set shipment_mode = form_data.shipment_mode if form_data and form_data.shipment_mode else "" %}
+
+                <div class="shipment-mode-options" role="group" aria-label="Shipment Mode">
+                    <input class="btn-check" type="radio" name="shipment_mode" id="mode_ocean_freight"
+                           value="Ocean Freight Shipment"
+                           {% if shipment_mode == "Ocean Freight Shipment" %}checked{% endif %} required>
+                    <label class="btn btn-outline-primary" for="mode_ocean_freight">
+                        Ocean Freight Shipment
+                    </label>
+
+                    <input class="btn-check" type="radio" name="shipment_mode" id="mode_railway"
+                           value="Railway Shipment"
+                           {% if shipment_mode == "Railway Shipment" %}checked{% endif %} required>
+                    <label class="btn btn-outline-primary" for="mode_railway">
+                        Railway Shipment
+                    </label>
+
+                    <input class="btn-check" type="radio" name="shipment_mode" id="mode_land"
+                           value="Land Shipment"
+                           {% if shipment_mode == "Land Shipment" %}checked{% endif %} required>
+                    <label class="btn btn-outline-primary" for="mode_land">
+                        Land Shipment
+                    </label>
+
+                    <input class="btn-check" type="radio" name="shipment_mode" id="mode_airway"
+                           value="Airway"
+                           {% if shipment_mode == "Airway" %}checked{% endif %} required>
+                    <label class="btn btn-outline-primary" for="mode_airway">
+                        Airway
+                    </label>
+
+                    <input class="btn-check" type="radio" name="shipment_mode" id="mode_ocean_land"
+                           value="Ocean Freight + Land Shipment"
+                           {% if shipment_mode == "Ocean Freight + Land Shipment" %}checked{% endif %} required>
+                    <label class="btn btn-outline-primary" for="mode_ocean_land">
+                        Ocean Freight + Land Shipment
+                    </label>
+                </div>
+            </div>
+        </div>
 
         <!-- 1️⃣ Client & Internal Details -->
         <div class="col-12 section-anim">
@@ -1871,13 +1930,8 @@
     </p>
   {% endif %}
 
-  <div class="result-bottom-actions">
-    <button type="button" class="btn btn-outline-primary btn-page-utility" id="backToEditBtn">
-      Back
-    </button>
-    <button type="button" class="btn btn-outline-secondary btn-page-utility" id="refreshPageBtn">
-      Refresh
-    </button>
+  <div class="alert alert-info mt-4 mb-0">
+    You can change any details in the form above and click <strong>Generate</strong> again to create a new quotation.
   </div>
 {% endif %}
     </div>
@@ -2795,7 +2849,7 @@ function recomputeGrandTotalsForTable(tableEl) {
   let qty40 = 0;
 
   let single20TruckRate = 0;
-  let pair20TruckRate = 0;
+  let pair20TruckTotal = 0;
 
   rows.forEach(tr => {
     const isGrand = tr.dataset.isgrand === "1";
@@ -2804,48 +2858,94 @@ function recomputeGrandTotalsForTable(tableEl) {
 
     const nameCell = tr.querySelector("td");
     const rowName = ((nameCell ? nameCell.textContent : "") || "").trim();
+
+    const rowNameLower = rowName.toLowerCase();
+
     const unitCount = Number(tr.dataset.unitcount || 0);
     const costNum = Number(tr.dataset.costnum || 0);
     const per20Num = Number(tr.dataset.per20 || 0);
     const per40Num = Number(tr.dataset.per40 || 0);
     const shipCommonNum = Number(tr.dataset.shipcommon || 0);
 
-    per20 += per20Num;
-    per40 += per40Num;
-    shipmentCommon += shipCommonNum;
+    per20 += Number.isFinite(per20Num) ? per20Num : 0;
+    per40 += Number.isFinite(per40Num) ? per40Num : 0;
+    shipmentCommon += Number.isFinite(shipCommonNum) ? shipCommonNum : 0;
 
+    // Detect total physical 20ft quantity from ANY 20ft charge row,
+    // not only trucking rows.
+    // Example:
+    // 1 x 20ft + 2 x 2x20ft = 5 physical 20ft containers.
+    if (
+      (
+        rowNameLower.includes("_20ft") ||
+        rowNameLower.includes("(20ft)") ||
+        rowNameLower.includes("20ft")
+      ) &&
+      !rowNameLower.includes("2x20ft") &&
+      unitCount > 0
+    ) {
+      qty20Units = Math.max(qty20Units, unitCount);
+    }
+
+    // Detect total 40ft quantity from ANY 40ft charge row.
+    if (
+      (
+        rowNameLower.includes("_40ft") ||
+        rowNameLower.includes("(40ft)") ||
+        rowNameLower.includes("40ft")
+      ) &&
+      unitCount > 0
+    ) {
+      qty40 = Math.max(qty40, unitCount);
+    }
+
+    // Trucking-specific quantities/rates must remain separate.
+    // Single 20ft trucking is charged only for selected single 20ft count.
     if (rowName === "trucking_charges_20ft" && unitCount > 0) {
       qty20Single = unitCount;
       single20TruckRate = per20Num;
     }
 
+    // 2x20ft trucking row cost_num is already total trucking cost
+    // for all selected 2x20ft pairs, so DO NOT multiply it again.
     if (rowName === "trucking_charges_2x20ft" && unitCount > 0) {
       qty20Pair = unitCount;
-      pair20TruckRate = costNum;
-    }
-
-    if ((rowName.includes("_40ft") || rowName.includes("(40ft)")) && unitCount > 0) {
-      qty40 = Math.max(qty40, unitCount);
+      pair20TruckTotal = costNum;
     }
   });
 
-  qty20Units = qty20Single + (qty20Pair * 2);
+  // Fallback: if no normal 20ft charge row exists, calculate 20ft units
+  // from trucking rows only.
+  if (qty20Units <= 0) {
+    qty20Units = qty20Single + (qty20Pair * 2);
+  }
 
   let shipment = 0;
 
-  // 20ft side
-  if (qty20Single > 0 && qty20Pair > 0) {
-    const base20WithoutSingleTruck = per20 - single20TruckRate;
-    shipment += (base20WithoutSingleTruck * qty20Units);
-    shipment += (pair20TruckRate * qty20Pair);
-    shipment += (single20TruckRate * qty20Single);
-  } else if (qty20Single > 0) {
-    shipment += per20 * qty20Single;
-  } else if (qty20Pair > 0) {
-    shipment += per20 * qty20Pair;
+  // 20ft side:
+  // - Normal 20ft charges are multiplied by total physical 20ft units.
+  // - Single 20ft trucking is charged only for single 20ft count.
+  // - 2x20ft trucking total is added once because cost_num is already total.
+  if (qty20Units > 0) {
+    let base20WithoutSingleTruck = per20;
+
+    if (qty20Single > 0) {
+      base20WithoutSingleTruck -= single20TruckRate;
+    }
+
+    shipment += base20WithoutSingleTruck * qty20Units;
+
+    if (qty20Single > 0) {
+      shipment += single20TruckRate * qty20Single;
+    }
+
+    if (qty20Pair > 0) {
+      shipment += pair20TruckTotal;
+    }
   }
 
-  // 40ft side
+  // 40ft side:
+  // per 40ft total × selected 40ft quantity.
   if (qty40 > 0) {
     shipment += per40 * qty40;
   }
@@ -3490,54 +3590,20 @@ function resetEntireQuoteUi() {
   }, 220);
 }
 
+// Back / Refresh buttons removed.
+// The form stays editable after quote generation.
+// When the user changes any detail, reset closed-route confirmation so the next
+// quotation is validated properly again.
 function bindResultPageButtons() {
-  const backBtn = document.getElementById("backToEditBtn");
-  const refreshBtn = document.getElementById("refreshPageBtn");
+  if (!quoteForm) return;
 
-  if (backBtn && !backBtn.dataset.bound) {
-    backBtn.dataset.bound = "yes";
-    backBtn.addEventListener("click", function () {
-      scrollToAppTop();
+  quoteForm.addEventListener("input", function () {
+    if (confirmClosedInput) confirmClosedInput.value = "";
+  });
 
-      if (typeof syncRoutesVisibility === "function") {
-        syncRoutesVisibility();
-      }
-
-      const routesWrap = document.getElementById("routesWrap");
-      if (routesWrap) {
-        showAnimBlock(routesWrap);
-      }
-
-      const checkRoutesBtn = document.getElementById("checkRoutesBtn");
-      if (checkRoutesBtn) {
-        checkRoutesBtn.disabled = false;
-      }
-
-      const firstEditable =
-        document.querySelector('#quoteForm input:not([type="hidden"]):not([disabled]), #quoteForm select:not([disabled]), #quoteForm textarea:not([disabled])');
-
-      if (firstEditable) {
-        setTimeout(() => {
-          try {
-            firstEditable.focus({ preventScroll: true });
-          } catch (e) {
-            firstEditable.focus();
-          }
-        }, 520);
-      }
-    });
-  }
-
-  if (refreshBtn && !refreshBtn.dataset.bound) {
-    refreshBtn.dataset.bound = "yes";
-    refreshBtn.addEventListener("click", function () {
-      resetEntireQuoteUi();
-
-      setTimeout(() => {
-        scrollToAppTop();
-      }, 50);
-    });
-  }
+  quoteForm.addEventListener("change", function () {
+    if (confirmClosedInput) confirmClosedInput.value = "";
+  });
 }
 
 bindResultPageButtons();
