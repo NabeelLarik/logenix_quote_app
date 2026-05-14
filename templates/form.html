@@ -881,9 +881,37 @@
 
                     <input class="btn-check" type="radio" name="shipment_mode" id="mode_ocean_land"
                            value="Ocean Freight + Land Shipment"
-                           {% if shipment_mode == "Ocean Freight + Land Shipment" %}checked{% endif %} required>
+                           {% if shipment_mode == "Ocean Freight + Land Shipment" or shipment_mode == "Ocean Freight Shipment + Land Shipment" %}checked{% endif %} required>
                     <label class="btn btn-outline-primary" for="mode_ocean_land">
-                        Ocean Freight + Land Shipment
+                        Ocean Freight Shipment + Land Shipment
+                    </label>
+
+                    <input class="btn-check" type="radio" name="shipment_mode" id="mode_ocean_railway"
+                           value="Ocean Freight Shipment + Railway Shipment"
+                           {% if shipment_mode == "Ocean Freight Shipment + Railway Shipment" %}checked{% endif %} required>
+                    <label class="btn btn-outline-primary" for="mode_ocean_railway">
+                        Ocean Freight Shipment + Railway Shipment
+                    </label>
+
+                    <input class="btn-check" type="radio" name="shipment_mode" id="mode_railway_land"
+                           value="Railway Shipment + Land Shipment"
+                           {% if shipment_mode == "Railway Shipment + Land Shipment" %}checked{% endif %} required>
+                    <label class="btn btn-outline-primary" for="mode_railway_land">
+                        Railway Shipment + Land Shipment
+                    </label>
+
+                    <input class="btn-check" type="radio" name="shipment_mode" id="mode_land_airway"
+                           value="Land Shipment + Airway"
+                           {% if shipment_mode == "Land Shipment + Airway" %}checked{% endif %} required>
+                    <label class="btn btn-outline-primary" for="mode_land_airway">
+                        Land Shipment + Airway
+                    </label>
+
+                    <input class="btn-check" type="radio" name="shipment_mode" id="mode_ocean_railway_land"
+                           value="Ocean Freight Shipment + Railway Shipment + Land Shipment"
+                           {% if shipment_mode == "Ocean Freight Shipment + Railway Shipment + Land Shipment" %}checked{% endif %} required>
+                    <label class="btn btn-outline-primary" for="mode_ocean_railway_land">
+                        Ocean Freight Shipment + Railway Shipment + Land Shipment
                     </label>
                 </div>
             </div>
@@ -1609,12 +1637,12 @@
         </div>
 
         <!-- 6️⃣ Responsibilities -->
-        <div class="col-12 section-anim">
+        <div class="col-12 section-anim anim-block is-open" id="responsibilitiesSection">
             <div class="box">
                 <div class="box-title">6️⃣ Responsibilities</div>
                 <div class="row g-3">
 
-                    <div class="col-lg-6 d-flex">
+                    <div class="col-lg-6 d-flex" id="offloadingResponsibilityWrap">
                         <div class="box flex-fill h-100">
                             <div class="box-title">Who is responsible for offloading?</div>
                             {% set off = form_data.offloading_responsible if form_data and form_data.offloading_responsible else "" %}
@@ -1631,7 +1659,7 @@
                         </div>
                     </div>
 
-                    <div class="col-lg-6 d-flex">
+                    <div class="col-lg-6 d-flex" id="finalCustomsResponsibilityWrap">
                         <div class="box flex-fill h-100">
                             <div class="box-title">Who is responsible for Final Customs?</div>
                             {% set fc = form_data.final_customs_responsible if form_data and form_data.final_customs_responsible else "" %}
@@ -2744,22 +2772,68 @@ function setFinalCustomsResponsibility(value, lock) {
   rLogenix.disabled = !!lock;
 }
 
+function setResponsibilityFieldsVisible(visible) {
+  const section = document.getElementById("responsibilitiesSection");
+
+  const offCustomer = document.getElementById("offload_customer");
+  const offLogenix = document.getElementById("offload_logenix");
+
+  const customsCustomer = document.getElementById("customs_customer");
+  const customsLogenix = document.getElementById("customs_logenix");
+
+  const allInputs = [offCustomer, offLogenix, customsCustomer, customsLogenix].filter(Boolean);
+
+  if (!section || allInputs.length === 0) return;
+
+  if (!visible) {
+    hideAnimBlock(section);
+
+    allInputs.forEach(inp => {
+      inp.required = false;
+      inp.disabled = true;
+      inp.checked = false;
+    });
+
+    return;
+  }
+
+  showAnimBlock(section);
+
+  if (offCustomer) {
+    offCustomer.disabled = false;
+    offCustomer.required = true;
+  }
+  if (offLogenix) {
+    offLogenix.disabled = false;
+    offLogenix.required = false;
+  }
+
+  if (customsCustomer) {
+    customsCustomer.disabled = false;
+    customsCustomer.required = true;
+  }
+  if (customsLogenix) {
+    customsLogenix.disabled = false;
+    customsLogenix.required = false;
+  }
+}
+
 function applyIncotermSmartRules() {
   const originTxt = selectedIncotermText("incoterm_origin");
   const destTxt = selectedIncotermText("incoterm_destination");
 
-  const O = incCode(originTxt); // EXW, FCA, FOB, CIF, CIP, CPT, CFR...
-  const D = incCode(destTxt);   // DAP, DPU, DDP, DDU...
+  const O = incCode(originTxt); // EXW, FCA, FOB, CIF, CIP, CPT, CFR, FOR...
+  const D = incCode(destTxt);   // DAP, DPU, DDP, DDU, FOB, FOR, FOT...
 
   // 1) Address Mode Logic (Origin Address)
   // OPEN: EXW / FCA(factory) / FOT
-  // LOCK: FOB / FAS / CFR / CIF
+  // LOCK: FOB / FAS / CFR / CIF / FOR
   const originOpenSet = new Set(["EXW", "FCA", "FOT"]);
-  const originLockSet = new Set(["FOB", "FAS", "CFR", "CIF"]);
+  const originLockSet = new Set(["FOB", "FAS", "CFR", "CIF", "FOR"]);
 
   if (originOpenSet.has(O)) lockOriginAddress(false);
   else if (originLockSet.has(O)) lockOriginAddress(true);
-  else lockOriginAddress(true); // default safest (CPT/CIP/FOR/etc.) => lock origin
+  else lockOriginAddress(true); // default safest (CPT/CIP/etc.) => lock origin
 
   // Delivery Address rules:
   // REQUIRED for DAP/DPU/DDP/DDU
@@ -2774,12 +2848,31 @@ function applyIncotermSmartRules() {
     setDeliveryMode("LOCK");
   }
 
-  // 2) Insurance Auto Logic: CIP or CIF => AUTO YES (locked)
+  // NEW:
+  // If either Incoterm Origin or Incoterm Destination is FOB or FOR,
+  // hide and disable both:
+  // - Who is responsible for offloading?
+  // - Who is responsible for Final Customs?
+  const hideResponsibilities = (
+    O === "FOB" ||
+    O === "FOR" ||
+    D === "FOB" ||
+    D === "FOR"
+  );
 
+  if (hideResponsibilities) {
+    setResponsibilityFieldsVisible(false);
+    syncRoutesVisibility();
+    return;
+  }
+
+  setResponsibilityFieldsVisible(true);
+
+  // 2) Insurance Auto Logic: CIP or CIF => AUTO YES (locked)
 
   // 3) Customs Responsibility Auto Logic
   // Your field is "final_customs_responsible" with values Customer/Logenix.
-  // Mapping (adjust if your business meaning differs):
+  // Mapping:
   // DDP/DDU/DAP/DPU => Customer
   // EXW => Logenix
   if (requiredDeliverySet.has(D)) {
@@ -2788,10 +2881,14 @@ function applyIncotermSmartRules() {
     setFinalCustomsResponsibility("Logenix", true);
   } else {
     // unlock if not forced
-    setFinalCustomsResponsibility(document.querySelector('input[name="final_customs_responsible"]:checked')?.value || "Customer", false);
-      // keep route/transit/checkRoutes UI synced with destination incoterm rules
-    syncRoutesVisibility();
+    setFinalCustomsResponsibility(
+      document.querySelector('input[name="final_customs_responsible"]:checked')?.value || "Customer",
+      false
+    );
   }
+
+  // keep route/transit/checkRoutes UI synced with destination incoterm rules
+  syncRoutesVisibility();
 }
 
 // run on changes

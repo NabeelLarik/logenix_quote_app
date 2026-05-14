@@ -1197,7 +1197,24 @@ SHIPMENT_MODE_TO_SECTIONS = {
     "Railway Shipment": ["Railway_Shipment_Section"],
     "Land Shipment": ["Land_Shipment_Section"],
     "Airway": ["Airway_Section"],
+
+    # Existing Ocean + Land button already in frontend
     "Ocean Freight + Land Shipment": ["Ocean_Freight_Section", "Land_Shipment_Section"],
+
+    # Alias support if you later rename the frontend label/value
+    "Ocean Freight Shipment + Land Shipment": ["Ocean_Freight_Section", "Land_Shipment_Section"],
+
+    # New 2-way combinations
+    "Ocean Freight Shipment + Railway Shipment": ["Ocean_Freight_Section", "Railway_Shipment_Section"],
+    "Railway Shipment + Land Shipment": ["Railway_Shipment_Section", "Land_Shipment_Section"],
+    "Land Shipment + Airway": ["Land_Shipment_Section", "Airway_Section"],
+
+    # New 3-way combination
+    "Ocean Freight Shipment + Railway Shipment + Land Shipment": [
+        "Ocean_Freight_Section",
+        "Railway_Shipment_Section",
+        "Land_Shipment_Section",
+    ],
 }
 
 
@@ -1342,11 +1359,15 @@ def select_pricing_columns_for_shipment_mode(
       - routes column
 
     Examples:
-      Ocean Freight Shipment        => Basic + Ocean + routes
-      Railway Shipment              => Basic + Railway + routes
-      Land Shipment                 => Basic + Land + routes
-      Airway                        => Basic + Airway + routes
-      Ocean Freight + Land Shipment => Basic + Ocean + Land + routes
+      Ocean Freight Shipment                                  => Basic + Ocean + routes
+      Railway Shipment                                        => Basic + Railway + routes
+      Land Shipment                                           => Basic + Land + routes
+      Airway                                                  => Basic + Airway + routes
+      Ocean Freight + Land Shipment                           => Basic + Ocean + Land + routes
+      Ocean Freight Shipment + Railway Shipment               => Basic + Ocean + Railway + routes
+      Railway Shipment + Land Shipment                        => Basic + Railway + Land + routes
+      Land Shipment + Airway                                  => Basic + Land + Airway + routes
+      Ocean Freight Shipment + Railway Shipment + Land Shipment => Basic + Ocean + Railway + Land + routes
     """
     mode = (shipment_mode or "").strip()
 
@@ -3616,6 +3637,15 @@ def submit():
     lifting_labor_required = request.form.get("lifting_labor_required", "").strip()
     offloading_responsible = request.form.get("offloading_responsible", "").strip()
     final_customs_responsible = request.form.get("final_customs_responsible", "").strip()
+
+        # If either Incoterm field is FOB or FOR, responsibility fields are hidden in frontend.
+    # Force them blank in backend too, so old cached/posted values cannot affect pricing.
+    inc_origin_code = canon(incoterm_origin).split(" ")[0].upper() if incoterm_origin else ""
+    inc_dest_code = canon(incoterm_destination).split(" ")[0].upper() if incoterm_destination else ""
+
+    if inc_origin_code in {"FOB", "FOR"} or inc_dest_code in {"FOB", "FOR"}:
+        offloading_responsible = ""
+        final_customs_responsible = ""
 
     # Transit borders (OPTIONAL)
     transit_border_1 = request.form.get("transit_border_1", "").strip()
